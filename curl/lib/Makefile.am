@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2009, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -18,45 +18,64 @@
 # This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
 # KIND, either express or implied.
 #
-# $Id: Makefile.am,v 1.141 2009-02-23 14:34:41 yangtse Exp $
 ###########################################################################
 AUTOMAKE_OPTIONS = foreign nostdinc
 
-DSP = libcurl.dsp
+DSP = vc6libcurl.dsp
 VCPROJ = libcurl.vcproj
 
 DOCS = README.encoding README.memoryleak README.ares README.curlx	\
  README.hostip README.multi_socket README.httpauth README.pipelining    \
- README.NSS README.curl_off_t
+ README.curl_off_t README.pingpong
 
-EXTRA_DIST = Makefile.b32 Makefile.m32 Makefile.vc6 Makefile.riscos $(DSP) \
- libcurl.dsw config-win32.h config-win32ce.h config-riscos.h config-mac.h  \
- config.h.in makefile.dj config.dos libcurl.plist                          \
+CMAKE_DIST = CMakeLists.txt curl_config.h.cmake
+
+EXTRA_DIST = Makefile.b32 Makefile.m32 Makefile.vc6 $(DSP)                 \
+ vc6libcurl.dsw config-win32.h config-win32ce.h config-riscos.h            \
+ config-mac.h curl_config.h.in makefile.dj config-dos.h libcurl.plist      \
  libcurl.rc config-amigaos.h amigaos.c amigaos.h makefile.amiga		   \
  Makefile.netware nwlib.c nwos.c libcurl.imp msvcproj.head msvcproj.foot   \
  config-win32ce.h config-os400.h setup-os400.h config-symbian.h		   \
  Makefile.Watcom config-tpf.h $(DOCS) $(VCPROJ) mk-ca-bundle.pl		   \
- firefox-db2pem.sh
+ mk-ca-bundle.vbs firefox-db2pem.sh $(CMAKE_DIST) config-vxworks.h	   \
+ Makefile.vxworks config-vms.h
 
 CLEANFILES = $(DSP) $(VCPROJ)
 
 lib_LTLIBRARIES = libcurl.la
 LIBCURL_LIBS = @LIBCURL_LIBS@
 
+# This might hold -Werror
+libcurl_la_CFLAGS = $(CFLAGS) @CURL_CFLAG_EXTRAS@
+
 # Specify our include paths here, and do it relative to $(top_srcdir) and
 # $(top_builddir), to ensure that these paths which belong to the library
 # being currently built and tested are searched before the library which
 # might possibly already be installed in the system.
 #
-# $(top_builddir)/include is for libcurl's generated curl/curlbuild.h file
+# $(top_builddir)/include/curl for generated curlbuild.h included from curl.h
+# $(top_builddir)/include for generated curlbuild.h included from lib/setup.h
 # $(top_srcdir)/include is for libcurl's external include files
-# $(top_builddir)/lib is for libcurl's generated lib/config.h file
+# $(top_builddir)/lib is for libcurl's generated lib/curl_config.h file
 # $(top_srcdir)/lib is for libcurl's lib/setup.h and other "private" files
+# $(top_builddir)/ares is for in-tree c-ares's generated ares_build.h file
+# $(top_srcdir)/ares is for in-tree c-ares's external include files
 
-INCLUDES = -I$(top_builddir)/include \
-           -I$(top_srcdir)/include   \
-           -I$(top_builddir)/lib     \
+if USE_EMBEDDED_ARES
+INCLUDES = -I$(top_builddir)/include/curl \
+           -I$(top_builddir)/include      \
+           -I$(top_srcdir)/include        \
+           -I$(top_builddir)/lib          \
+           -I$(top_srcdir)/lib            \
+           -I$(top_builddir)/ares         \
+           -I$(top_srcdir)/ares
+else
+INCLUDES = -I$(top_builddir)/include/curl \
+           -I$(top_builddir)/include      \
+           -I$(top_srcdir)/include        \
+           -I$(top_builddir)/lib          \
            -I$(top_srcdir)/lib
+endif
 
 if SONAME_BUMP
 #
@@ -68,9 +87,9 @@ if SONAME_BUMP
 #
 # This conditional soname bump SHOULD be removed at next "proper" bump.
 #
-VERSIONINFO=-version-info 6:1:1
+VERSIONINFO=-version-info 7:0:2
 else
-VERSIONINFO=-version-info 5:1:1
+VERSIONINFO=-version-info 6:0:2
 endif
 
 # This flag accepts an argument of the form current[:revision[:age]]. So,
@@ -79,7 +98,7 @@ endif
 #
 # Here's the simplified rule guide on how to change -version-info:
 # (current version is C:R:A)
-# 
+#
 # 1. if there are only source changes, use C:R+1:A
 # 2. if interfaces were added use C+1:0:A+1
 # 3. if interfaces were removed, then use C+1:0:0
@@ -97,12 +116,23 @@ if MIMPURE
 MIMPURE = -mimpure-text
 endif
 
-libcurl_la_LDFLAGS = $(UNDEF) $(VERSIONINFO) $(MIMPURE) $(LIBCURL_LIBS)
+LINKFLAGS=$(UNDEF) $(MIMPURE) $(LIBCURL_LIBS)
+
+libcurl_la_LDFLAGS = $(LINKFLAGS) $(VERSIONINFO)
+
+# as unit testing will compile and link everything an extra time, we only
+# do it if debug is enabled
+if CURLDEBUG
+noinst_LTLIBRARIES = libcurlu.la
+libcurlu_la_CFLAGS = -DUNITTESTS
+libcurlu_la_LDFLAGS = -static $(LINKFLAGS)
+endif
 
 # Makefile.inc provides the CSOURCES and HHEADERS defines
 include Makefile.inc
 
 libcurl_la_SOURCES = $(CSOURCES) $(HHEADERS)
+libcurlu_la_SOURCES = $(CSOURCES) $(HHEADERS)
 
 WIN32SOURCES = $(CSOURCES)
 WIN32HEADERS = $(HHEADERS) config-win32.h

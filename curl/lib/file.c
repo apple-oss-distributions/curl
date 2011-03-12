@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2009, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: file.c,v 1.119 2009-02-03 22:28:41 bagder Exp $
  ***************************************************************************/
 
 #include "setup.h"
@@ -82,7 +81,7 @@
 #include "getinfo.h"
 #include "transfer.h"
 #include "url.h"
-#include "memory.h"
+#include "curl_memory.h"
 #include "parsedate.h" /* for the week day and month names */
 
 #define _MPRINTF_REPLACE /* use our functions only */
@@ -93,6 +92,12 @@
 
 #if defined(WIN32) || defined(MSDOS) || defined(__EMX__) || defined(__SYMBIAN32__)
 #define DOS_FILESYSTEM 1
+#endif
+
+#ifdef OPEN_NEEDS_ARG3
+#  define open_readonly(p,f) open((p),(f),(0))
+#else
+#  define open_readonly(p,f) open((p),(f))
 #endif
 
 /*
@@ -141,7 +146,7 @@ static CURLcode file_range(struct connectdata *conn)
 
   if(data->state.use_range && data->state.range) {
     from=curlx_strtoofft(data->state.range, &ptr, 0);
-    while(ptr && *ptr && (isspace((int)*ptr) || (*ptr=='-')))
+    while(*ptr && (ISSPACE(*ptr) || (*ptr=='-')))
       ptr++;
     to=curlx_strtoofft(ptr, &ptr2, 0);
     if(ptr == ptr2) {
@@ -156,11 +161,10 @@ static CURLcode file_range(struct connectdata *conn)
     }
     else if(from < 0) {
       /* -Y */
-      totalsize = -from;
       data->req.maxdownload = -from;
       data->state.resume_from = from;
       DEBUGF(infof(data, "RANGE the last %" FORMAT_OFF_T " bytes\n",
-                   totalsize));
+                   -from));
     }
     else {
       /* X-Y */
@@ -204,7 +208,7 @@ static CURLcode file_connect(struct connectdata *conn, bool *done)
   Curl_reset_reqproto(conn);
 
   if(!data->state.proto.file) {
-    file = calloc(sizeof(struct FILEPROTO), 1);
+    file = calloc(1, sizeof(struct FILEPROTO));
     if(!file) {
       free(real_path);
       return CURLE_OUT_OF_MEMORY;
@@ -251,10 +255,10 @@ static CURLcode file_connect(struct connectdata *conn, bool *done)
     if(actual_path[i] == '/')
       actual_path[i] = '\\';
 
-  fd = open(actual_path, O_RDONLY | O_BINARY);  /* no CR/LF translation! */
+  fd = open_readonly(actual_path, O_RDONLY|O_BINARY); /* no CR/LF translation */
   file->path = actual_path;
 #else
-  fd = open(real_path, O_RDONLY);
+  fd = open_readonly(real_path, O_RDONLY);
   file->path = real_path;
 #endif
   file->freepath = real_path; /* free this when done */
@@ -459,6 +463,13 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
     fstated = TRUE;
   }
 
+  if(fstated && !data->state.range && data->set.timecondition) {
+    if(!Curl_meets_timecondition(data, data->info.filetime)) {
+      *done = TRUE;
+      return CURLE_OK;
+    }
+  }
+
   /* If we have selected NOBODY and HEADER, it means that we only want file
      information. Which for FILE can't be much more than the file size and
      date. */
@@ -476,14 +487,13 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
       return result;
 
     if(fstated) {
-      const struct tm *tm;
       time_t filetime = (time_t)statbuf.st_mtime;
-#ifdef HAVE_GMTIME_R
       struct tm buffer;
-      tm = (const struct tm *)gmtime_r(&filetime, &buffer);
-#else
-      tm = gmtime(&filetime);
-#endif
+      const struct tm *tm = &buffer;
+      result = Curl_gmtime(filetime, &buffer);
+      if(result)
+        return result;
+
       /* format: "Tue, 15 Nov 1994 12:45:26 GMT" */
       snprintf(buf, BUFSIZE-1,
                "Last-Modified: %s, %02d %s %4d %02d:%02d:%02d GMT\r\n",

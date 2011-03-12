@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: curl_sspi.c,v 1.2 2009-01-30 01:54:22 yangtse Exp $
  ***************************************************************************/
 
 #include "setup.h"
@@ -32,10 +31,13 @@
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
 
-#include "memory.h"
+#include "curl_memory.h"
 /* The last #include file should be: */
 #include "memdebug.h"
 
+
+/* We use our own typedef here since some headers might lack these */
+typedef PSecurityFunctionTableA (APIENTRY *INITSECURITYINTERFACE_FN_A)(VOID);
 
 /* Handle of security.dll or secur32.dll, depending on Windows version */
 HMODULE s_hSecDll = NULL;
@@ -60,7 +62,7 @@ CURLcode
 Curl_sspi_global_init(void)
 {
   OSVERSIONINFO osver;
-  INIT_SECURITY_INTERFACE_A pInitSecurityInterface;
+  INITSECURITYINTERFACE_FN_A pInitSecurityInterface;
 
   /* If security interface is not yet initialized try to do this */
   if(s_hSecDll == NULL) {
@@ -85,7 +87,7 @@ Curl_sspi_global_init(void)
       return CURLE_FAILED_INIT;
 
     /* Get address of the InitSecurityInterfaceA function from the SSPI dll */
-    pInitSecurityInterface = (INIT_SECURITY_INTERFACE_A)
+    pInitSecurityInterface = (INITSECURITYINTERFACE_FN_A)
       GetProcAddress(s_hSecDll, "InitSecurityInterfaceA");
     if(! pInitSecurityInterface)
       return CURLE_FAILED_INIT;

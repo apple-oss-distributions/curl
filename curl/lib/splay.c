@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1997 - 2008, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1997 - 2009, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: splay.c,v 1.12 2008-12-20 21:48:34 bagder Exp $
  ***************************************************************************/
 
 #include "setup.h"
@@ -332,7 +331,7 @@ int Curl_splayremovebyaddr(struct Curl_tree *t,
   return 0;
 }
 
-#ifdef CURLDEBUG
+#ifdef DEBUGBUILD
 
 void Curl_splayprint(struct Curl_tree * t, int d, char output)
 {
@@ -395,6 +394,10 @@ int main(int argc, argv_item_t argv[])
   for (i = 0; i < MAX; i++) {
     struct timeval key;
     ptrs[i] = t = malloc(sizeof(struct Curl_tree));
+    if(!t) {
+      puts("out of memory!");
+      return 0;
+    }
 
     key.tv_sec = 0;
 #ifdef TEST2
@@ -406,10 +409,6 @@ int main(int argc, argv_item_t argv[])
 #endif
 
     t->payload = (void *)key.tv_usec; /* for simplicity */
-    if(!t) {
-      puts("out of memory!");
-      return 0;
-    }
     root = Curl_splayinsert(key, root, t);
   }
 

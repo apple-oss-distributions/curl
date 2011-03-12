@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2008, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: sockfilt.c,v 1.55 2008-10-01 17:34:25 danf Exp $
  ***************************************************************************/
 
 /* Purpose
@@ -80,6 +79,8 @@
  * if no signal was being ignored or handled at all.  Enjoy it!
  */
 
+#define CURL_NO_OLDIES
+
 #include "setup.h" /* portability help from the lib directory */
 
 #ifdef HAVE_SIGNAL_H
@@ -94,8 +95,7 @@
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
-#ifdef _XOPEN_SOURCE_EXTENDED
-/* This define is "almost" required to build on HPUX 11 */
+#ifdef HAVE_ARPA_INET_H
 #include <arpa/inet.h>
 #endif
 #ifdef HAVE_NETDB_H
@@ -109,6 +109,7 @@
 #include "getpart.h"
 #include "inet_pton.h"
 #include "util.h"
+#include "server_sockaddr.h"
 
 /* include memdebug.h last */
 #include "memdebug.h"
@@ -146,11 +147,25 @@ enum sockmode {
 
 typedef RETSIGTYPE (*SIGHANDLER_T)(int);
 
+#ifdef SIGHUP
 static SIGHANDLER_T old_sighup_handler  = SIG_ERR;
+#endif
+
+#ifdef SIGPIPE
 static SIGHANDLER_T old_sigpipe_handler = SIG_ERR;
+#endif
+
+#ifdef SIGALRM
 static SIGHANDLER_T old_sigalrm_handler = SIG_ERR;
+#endif
+
+#ifdef SIGINT
 static SIGHANDLER_T old_sigint_handler  = SIG_ERR;
+#endif
+
+#ifdef SIGTERM
 static SIGHANDLER_T old_sigterm_handler = SIG_ERR;
+#endif
 
 /* var which if set indicates that the program should finish execution */
 
@@ -440,7 +455,17 @@ static bool juggle(curl_socket_t *sockfdp,
   FD_ZERO(&fds_write);
   FD_ZERO(&fds_err);
 
+#ifdef USE_WINSOCK
+  /*
+  ** WinSock select() does not support standard file descriptors,
+  ** it can only check SOCKETs. Since this program in its current
+  ** state will not work on WinSock based systems, next line is
+  ** commented out to allow warning-free compilation awaiting the
+  ** day it will be fixed to also run on WinSock systems.
+  */
+#else
   FD_SET(fileno(stdin), &fds_read);
+#endif
 
   switch(*mode) {
 
@@ -545,9 +570,9 @@ static bool juggle(curl_socket_t *sockfdp,
     else if(!memcmp("PORT", buffer, 4)) {
       /* Question asking us what PORT number we are listening to.
          Replies to PORT with "IPv[num]/[port]" */
-      sprintf((char *)buffer, "%s/%d\n", ipv_inuse, (int)port);
+      sprintf((char *)buffer, "%s/%hu\n", ipv_inuse, port);
       buffer_len = (ssize_t)strlen((char *)buffer);
-      snprintf(data, sizeof(data), "PORT\n%04x\n", buffer_len);
+      snprintf(data, sizeof(data), "PORT\n%04zx\n", buffer_len);
       if(!write_stdout(data, 10))
         return FALSE;
       if(!write_stdout(buffer, buffer_len))
@@ -647,7 +672,7 @@ static bool juggle(curl_socket_t *sockfdp,
       return TRUE;
     }
 
-    snprintf(data, sizeof(data), "DATA\n%04x\n", nread_socket);
+    snprintf(data, sizeof(data), "DATA\n%04zx\n", nread_socket);
     if(!write_stdout(data, 10))
       return FALSE;
     if(!write_stdout(buffer, nread_socket))
@@ -664,11 +689,8 @@ static curl_socket_t sockdaemon(curl_socket_t sock,
                                 unsigned short *listenport)
 {
   /* passive daemon style */
-  struct sockaddr_in me;
-#ifdef ENABLE_IPV6
-  struct sockaddr_in6 me6;
-#endif /* ENABLE_IPV6 */
-  int flag = 1;
+  srvr_sockaddr_union_t listener;
+  int flag;
   int rc;
   int totdelay = 0;
   int maxretr = 10;
@@ -678,16 +700,20 @@ static curl_socket_t sockdaemon(curl_socket_t sock,
 
   do {
     attempt++;
+    flag = 1;
     rc = setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
          (void *)&flag, sizeof(flag));
     if(rc) {
       error = SOCKERRNO;
+      logmsg("setsockopt(SO_REUSEADDR) failed with error: (%d) %s",
+             error, strerror(error));
       if(maxretr) {
         rc = wait_ms(delay);
         if(rc) {
           /* should not happen */
           error = SOCKERRNO;
-          logmsg("wait_ms() failed: (%d) %s", error, strerror(error));
+          logmsg("wait_ms() failed with error: (%d) %s",
+                 error, strerror(error));
           sclose(sock);
           return CURL_SOCKET_BAD;
         }
@@ -708,47 +734,77 @@ static curl_socket_t sockdaemon(curl_socket_t sock,
     logmsg("Continuing anyway...");
   }
 
+  /* When the specified listener port is zero, it is actually a
+     request to let the system choose a non-zero available port. */
+
 #ifdef ENABLE_IPV6
   if(!use_ipv6) {
 #endif
-    memset(&me, 0, sizeof(me));
-    me.sin_family = AF_INET;
-    me.sin_addr.s_addr = INADDR_ANY;
-    me.sin_port = htons(*listenport);
-    rc = bind(sock, (struct sockaddr *) &me, sizeof(me));
+    memset(&listener.sa4, 0, sizeof(listener.sa4));
+    listener.sa4.sin_family = AF_INET;
+    listener.sa4.sin_addr.s_addr = INADDR_ANY;
+    listener.sa4.sin_port = htons(*listenport);
+    rc = bind(sock, &listener.sa, sizeof(listener.sa4));
 #ifdef ENABLE_IPV6
   }
   else {
-    memset(&me6, 0, sizeof(me6));
-    me6.sin6_family = AF_INET6;
-    me6.sin6_addr = in6addr_any;
-    me6.sin6_port = htons(*listenport);
-    rc = bind(sock, (struct sockaddr *) &me6, sizeof(me6));
+    memset(&listener.sa6, 0, sizeof(listener.sa6));
+    listener.sa6.sin6_family = AF_INET6;
+    listener.sa6.sin6_addr = in6addr_any;
+    listener.sa6.sin6_port = htons(*listenport);
+    rc = bind(sock, &listener.sa, sizeof(listener.sa6));
   }
 #endif /* ENABLE_IPV6 */
   if(rc) {
     error = SOCKERRNO;
-    logmsg("Error binding socket: (%d) %s", error, strerror(error));
+    logmsg("Error binding socket on port %hu: (%d) %s",
+           *listenport, error, strerror(error));
     sclose(sock);
     return CURL_SOCKET_BAD;
   }
 
   if(!*listenport) {
-    /* The system picked a port number, now figure out which port we actually
-       got */
-    /* we succeeded to bind */
-    struct sockaddr_in add;
-    socklen_t socksize = sizeof(add);
-
-    if(getsockname(sock, (struct sockaddr *) &add,
-                   &socksize)<0) {
+    /* The system was supposed to choose a port number, figure out which
+       port we actually got and update the listener port value with it. */
+    curl_socklen_t la_size;
+    srvr_sockaddr_union_t localaddr;
+#ifdef ENABLE_IPV6
+    if(!use_ipv6)
+#endif
+      la_size = sizeof(localaddr.sa4);
+#ifdef ENABLE_IPV6
+    else
+      la_size = sizeof(localaddr.sa6);
+#endif
+    memset(&localaddr.sa, 0, (size_t)la_size);
+    if(getsockname(sock, &localaddr.sa, &la_size) < 0) {
       error = SOCKERRNO;
       logmsg("getsockname() failed with error: (%d) %s",
              error, strerror(error));
       sclose(sock);
       return CURL_SOCKET_BAD;
     }
-    *listenport = ntohs(add.sin_port);
+    switch (localaddr.sa.sa_family) {
+    case AF_INET:
+      *listenport = ntohs(localaddr.sa4.sin_port);
+      break;
+#ifdef ENABLE_IPV6
+    case AF_INET6:
+      *listenport = ntohs(localaddr.sa6.sin6_port);
+      break;
+#endif
+    default:
+      break;
+    }
+    if(!*listenport) {
+      /* Real failure, listener port shall not be zero beyond this point. */
+      logmsg("Apparently getsockname() succeeded, with listener port zero.");
+      logmsg("A valid reason for this failure is a binary built without");
+      logmsg("proper network library linkage. This might not be the only");
+      logmsg("reason, but double check it before anything else.");
+      sclose(sock);
+      return CURL_SOCKET_BAD;
+    }
   }
 
   /* start accepting connections */
@@ -767,14 +823,12 @@ static curl_socket_t sockdaemon(curl_socket_t sock,
 
 int main(int argc, char *argv[])
 {
-  struct sockaddr_in me;
-#ifdef ENABLE_IPV6
-  struct sockaddr_in6 me6;
-#endif /* ENABLE_IPV6 */
+  srvr_sockaddr_union_t me;
   curl_socket_t sock = CURL_SOCKET_BAD;
   curl_socket_t msgsock = CURL_SOCKET_BAD;
   int wrotepidfile = 0;
   char *pidname= (char *)".sockfilt.pid";
+  bool juggle_again;
   int rc;
   int error;
   int arg=1;
@@ -824,7 +878,15 @@ int main(int argc, char *argv[])
     else if(!strcmp("--port", argv[arg])) {
       arg++;
       if(argc>arg) {
-        port = (unsigned short)atoi(argv[arg]);
+        char *endptr;
+        unsigned long ulnum = strtoul(argv[arg], &endptr, 10);
+        if((endptr != argv[arg] + strlen(argv[arg])) ||
+           ((ulnum != 0UL) && ((ulnum < 1025UL) || (ulnum > 65535UL)))) {
+          fprintf(stderr, "sockfilt: invalid --port argument (%s)\n",
+                  argv[arg]);
+          return 0;
+        }
+        port = curlx_ultous(ulnum);
         arg++;
       }
     }
@@ -833,7 +895,15 @@ int main(int argc, char *argv[])
          doing a passive server-style listening. */
       arg++;
       if(argc>arg) {
-        connectport = (unsigned short)atoi(argv[arg]);
+        char *endptr;
+        unsigned long ulnum = strtoul(argv[arg], &endptr, 10);
+        if((endptr != argv[arg] + strlen(argv[arg])) ||
+           (ulnum < 1025UL) || (ulnum > 65535UL)) {
+          fprintf(stderr, "sockfilt: invalid --connect argument (%s)\n",
+                  argv[arg]);
+          return 0;
+        }
+        connectport = curlx_ultous(ulnum);
         arg++;
       }
     }
@@ -889,26 +959,26 @@ int main(int argc, char *argv[])
 #ifdef ENABLE_IPV6
     if(!use_ipv6) {
 #endif
-      memset(&me, 0, sizeof(me));
-      me.sin_family = AF_INET;
-      me.sin_port = htons(connectport);
-      me.sin_addr.s_addr = INADDR_ANY;
+      memset(&me.sa4, 0, sizeof(me.sa4));
+      me.sa4.sin_family = AF_INET;
+      me.sa4.sin_port = htons(connectport);
+      me.sa4.sin_addr.s_addr = INADDR_ANY;
       if (!addr)
         addr = "127.0.0.1";
-      Curl_inet_pton(AF_INET, addr, &me.sin_addr);
+      Curl_inet_pton(AF_INET, addr, &me.sa4.sin_addr);
 
-      rc = connect(sock, (struct sockaddr *) &me, sizeof(me));
+      rc = connect(sock, &me.sa, sizeof(me.sa4));
 #ifdef ENABLE_IPV6
     }
     else {
-      memset(&me6, 0, sizeof(me6));
-      me6.sin6_family = AF_INET6;
-      me6.sin6_port = htons(connectport);
+      memset(&me.sa6, 0, sizeof(me.sa6));
+      me.sa6.sin6_family = AF_INET6;
+      me.sa6.sin6_port = htons(connectport);
       if (!addr)
         addr = "::1";
-      Curl_inet_pton(AF_INET6, addr, &me6.sin6_addr);
+      Curl_inet_pton(AF_INET6, addr, &me.sa6.sin6_addr);
 
-      rc = connect(sock, (struct sockaddr *) &me6, sizeof(me6));
+      rc = connect(sock, &me.sa, sizeof(me.sa6));
     }
 #endif /* ENABLE_IPV6 */
     if(rc) {
@@ -939,7 +1009,9 @@ int main(int argc, char *argv[])
   if(!wrotepidfile)
     goto sockfilt_cleanup;
 
-  while(juggle(&msgsock, sock, &mode));
+  do {
+    juggle_again = juggle(&msgsock, sock, &mode);
+  } while(juggle_again);
 
 sockfilt_cleanup:
 

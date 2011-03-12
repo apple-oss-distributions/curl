@@ -9,11 +9,11 @@ UID           0x00000000 0xF0206442
 SOURCEPATH  ../../../src
 SOURCE \
     main.c hugehelp.c urlglob.c writeout.c writeenv.c \
-    getpass.c homedir.c curlutil.c
+    getpass.c homedir.c curlutil.c os-specific.c xattr.c
 
 SOURCEPATH  ../../../lib
 SOURCE \
-    rawstr.c
+    rawstr.c nonblock.c
 
 USERINCLUDE ../../../src ../../../lib ../../../include/curl
 

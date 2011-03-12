@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2009, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: content_encoding.c,v 1.31 2009-02-17 12:14:52 bagder Exp $
  ***************************************************************************/
 
 #include "setup.h"
@@ -32,7 +31,7 @@
 #include <curl/curl.h>
 #include "sendf.h"
 #include "content_encoding.h"
-#include "memory.h"
+#include "curl_memory.h"
 
 #include "memdebug.h"
 
@@ -40,7 +39,7 @@
    (doing so will reduce code size slightly). */
 #define OLD_ZLIB_SUPPORT 1
 
-#define DSIZ 0x10000             /* buffer size for decompressed data */
+#define DSIZ CURL_MAX_WRITE_SIZE /* buffer size for decompressed data */
 
 #define GZIP_MAGIC_0 0x1f
 #define GZIP_MAGIC_1 0x8b
@@ -104,7 +103,7 @@ inflate_stream(struct connectdata *conn,
     status = inflate(z, Z_SYNC_FLUSH);
     if(status == Z_OK || status == Z_STREAM_END) {
       allow_restart = 0;
-      if(DSIZ - z->avail_out) {
+      if((DSIZ - z->avail_out) && (!k->ignorebody)) {
         result = Curl_client_write(conn, CLIENTWRITE_BODY, decomp,
                                    DSIZ - z->avail_out);
         /* if !CURLE_OK, clean up, return */
@@ -124,7 +123,9 @@ inflate_stream(struct connectdata *conn,
       }
 
       /* Done with these bytes, exit */
-      if(status == Z_OK && z->avail_in == 0) {
+
+      /* status is always Z_OK at this point! */
+      if(z->avail_in == 0) {
         free(decomp);
         return result;
       }
@@ -248,7 +249,6 @@ static enum {
 
     /* Skip over the NUL */
     --len;
-    ++data;
   }
 
   if(flags & HEAD_CRC) {
@@ -256,7 +256,6 @@ static enum {
       return GZIP_UNDERFLOW;
 
     len -= 2;
-    data += 2;
   }
 
   *headerlen = totallen - len;
@@ -280,27 +279,27 @@ Curl_unencode_gzip_write(struct connectdata *conn,
     z->avail_in = 0;
 
     if(strcmp(zlibVersion(), "1.2.0.4") >= 0) {
-        /* zlib ver. >= 1.2.0.4 supports transparent gzip decompressing */
-        if(inflateInit2(z, MAX_WBITS+32) != Z_OK) {
-          return process_zlib_error(conn, z);
-        }
-        k->zlib_init = ZLIB_INIT_GZIP; /* Transparent gzip decompress state */
-
-    } else {
-        /* we must parse the gzip header ourselves */
-        if(inflateInit2(z, -MAX_WBITS) != Z_OK) {
-          return process_zlib_error(conn, z);
-        }
-        k->zlib_init = ZLIB_INIT;   /* Initial call state */
+      /* zlib ver. >= 1.2.0.4 supports transparent gzip decompressing */
+      if(inflateInit2(z, MAX_WBITS+32) != Z_OK) {
+        return process_zlib_error(conn, z);
+      }
+      k->zlib_init = ZLIB_INIT_GZIP; /* Transparent gzip decompress state */
+    }
+    else {
+      /* we must parse the gzip header ourselves */
+      if(inflateInit2(z, -MAX_WBITS) != Z_OK) {
+        return process_zlib_error(conn, z);
+      }
+      k->zlib_init = ZLIB_INIT;   /* Initial call state */
     }
   }
 
   if(k->zlib_init == ZLIB_INIT_GZIP) {
-     /* Let zlib handle the gzip decompression entirely */
-     z->next_in = (Bytef *)k->str;
-     z->avail_in = (uInt)nread;
-     /* Now uncompress the data */
-     return inflate_stream(conn, k);
+    /* Let zlib handle the gzip decompression entirely */
+    z->next_in = (Bytef *)k->str;
+    z->avail_in = (uInt)nread;
+    /* Now uncompress the data */
+    return inflate_stream(conn, k);
   }
 
 #ifndef OLD_ZLIB_SUPPORT
@@ -365,7 +364,7 @@ Curl_unencode_gzip_write(struct connectdata *conn,
     ssize_t hlen;
     unsigned char *oldblock = z->next_in;
 
-    z->avail_in += nread;
+    z->avail_in += (uInt)nread;
     z->next_in = realloc(z->next_in, z->avail_in);
     if(z->next_in == NULL) {
       free(oldblock);
@@ -414,4 +413,14 @@ Curl_unencode_gzip_write(struct connectdata *conn,
   return inflate_stream(conn, k);
 #endif
 }
+
+void Curl_unencode_cleanup(struct connectdata *conn)
+{
+  struct SessionHandle *data = conn->data;
+  struct SingleRequest *k = &data->req;
+  z_stream *z = &k->z;
+  if(k->zlib_init != ZLIB_UNINIT)
+    (void) exit_zlib(z, &k->zlib_init, CURLE_OK);
+}
+
 #endif /* HAVE_LIBZ */

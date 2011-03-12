@@ -5,7 +5,6 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * $Id: lib558.c,v 1.9 2008-11-07 12:22:43 yangtse Exp $
  */
 
 #include "test.h"
@@ -29,7 +28,7 @@
 #include "hash.h"
 #include "hostip.h"
 
-#include "memory.h"
+#include "curl_memory.h"
 #include "memdebug.h"
 
 /* This source file is used for test # 558 and 559 */
@@ -42,8 +41,16 @@
  * ones in the public API.
  */
 
+#if defined(CURL_HIDDEN_SYMBOLS)
+#  define SKIP_TEST 1
+#elif defined(WIN32) && !defined(CURL_STATICLIB)
+#  define SKIP_TEST 1
+#else
+#  undef  SKIP_TEST
+#endif
 
-#if !defined(CURL_HIDDEN_SYMBOLS)
+
+#if !defined(SKIP_TEST)
 
 #ifdef LIB559
 static Curl_addrinfo *fake_ai(void)
@@ -80,7 +87,7 @@ int test(char *URL)
   CURL *easyh = NULL;
   struct curl_hash *hp = NULL;
   int result = 0;
- 
+
   if(!strcmp(URL, "check")) {
     /* test harness script verifying if this test can run */
     return 0; /* sure, run this! */
@@ -167,7 +174,7 @@ cleanup:
 }
 
 
-#else /* !defined(CURL_HIDDEN_SYMBOLS) */
+#else /* !defined(SKIP_TEST) */
 
 
 int test(char *URL)
@@ -178,4 +185,4 @@ int test(char *URL)
 }
 
 
-#endif /* !defined(CURL_HIDDEN_SYMBOLS) */
+#endif /* !defined(SKIP_TEST) */

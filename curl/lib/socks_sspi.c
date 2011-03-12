@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 2009, Markus Moeller, <markus_moeller@compuserve.com>
+ * Copyright (C) 2009, 2011, Markus Moeller, <markus_moeller@compuserve.com>
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: socks_sspi.c,v 1.6 2009-02-23 01:04:18 yangtse Exp $
  ***************************************************************************/
 
 
@@ -28,9 +27,6 @@
 
 #include <string.h>
 
-#ifdef NEED_MALLOC_H
-#include <malloc.h>
-#endif
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
 #endif
@@ -45,6 +41,7 @@
 #define _MPRINTF_REPLACE /* use the internal *printf() functions */
 #include <curl/mprintf.h>
 
+#include "curl_memory.h"
 /* The last #include file should be: */
 #include "memdebug.h"
 
@@ -189,7 +186,7 @@ CURLcode Curl_SOCKS5_gssapi_negotiate(int sockindex,
   char *service = data->set.str[STRING_SOCKS5_GSSAPI_SERVICE];
 
   /* get timeout */
-  timeout = Curl_timeleft(conn, NULL, TRUE);
+  timeout = Curl_timeleft(data, NULL, TRUE);
 
   /*   GSSAPI request looks like
    * +----+------+-----+----------------+

@@ -5,15 +5,15 @@
 	<key>OpenSourceProject</key>
 	<string>curl</string>
 	<key>OpenSourceVersion</key>
-	<string>7.19.4</string>
+	<string>7.21.4</string>
 	<key>OpenSourceWebsiteURL</key>
 	<string>http://curl.haxx.se/</string>
 	<key>OpenSourceURL</key>
-	<string>http://curl.haxx.se/download/curl-7.19.4.tar.bz2</string>
+	<string>http://curl.haxx.se/download/curl-7.21.4.tar.bz2</string>
 	<key>OpenSourceSHA1</key>
-	<string>6b8cb206990cd68d8653cea16a47bd0febd5c50d</string>
+	<string>9cc59be07932b63e1f7d714c56ffaaa92af55373</string>
 	<key>OpenSourceImportDate</key>
-	<string>2009-03-02</string>
+	<string>2011-02-17</string>
 	<key>OpenSourceModifications</key>
 	<array>
 		<string>Modified configure script to allow universal building.</string>
@@ -22,7 +22,7 @@
 		<string>Build with the -mdynamic-no-pic flag.</string>
 	</array>
 	<key>OpenSourceLicense</key>
-	<string>Other</string>
+	<string>MIT</string>
 	<key>OpenSourceLicenseFile</key>
 	<string>curl.txt</string>
 </dict>

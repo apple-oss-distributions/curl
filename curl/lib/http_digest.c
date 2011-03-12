@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2009, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: http_digest.c,v 1.48 2009-02-28 01:11:57 yangtse Exp $
  ***************************************************************************/
 #include "setup.h"
 
@@ -38,7 +37,7 @@
 #include "http_digest.h"
 #include "strtok.h"
 #include "url.h" /* for Curl_safefree() */
-#include "memory.h"
+#include "curl_memory.h"
 #include "easyif.h" /* included for Curl_convert_... prototypes */
 
 #define _MPRINTF_REPLACE /* use our functions only */
@@ -130,7 +129,6 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
                              const char *header) /* rest of the *-authenticate:
                                                     header */
 {
-  bool more = TRUE;
   char *token = NULL;
   char *tmp = NULL;
   bool foundAuth = FALSE;
@@ -160,17 +158,15 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
     /* clear off any former leftovers and init to defaults */
     Curl_digest_cleanup_one(d);
 
-    while(more) {
+    for(;;) {
       char value[MAX_VALUE_LENGTH];
       char content[MAX_CONTENT_LENGTH];
-      size_t totlen=0;
 
       while(*header && ISSPACE(*header))
         header++;
 
       /* extract a value=content pair */
       if(!get_pair(header, value, content, &header)) {
-
         if(Curl_raw_equal(value, "nonce")) {
           d->nonce = strdup(content);
           if(!d->nonce)
@@ -236,12 +232,6 @@ CURLdigest Curl_input_digest(struct connectdata *conn,
         else {
           /* unknown specifier, ignore it! */
         }
-        totlen = strlen(value)+strlen(content)+1;
-
-        if(header[strlen(value)+1] == '\"')
-          /* the contents were within quotes, then add 2 for them to the
-             length */
-          totlen += 2;
       }
       else
         break; /* we're done here */
@@ -543,8 +533,8 @@ CURLcode Curl_output_digest(struct connectdata *conn,
     *allocuserpwd = tmp;
   }
 
-  /* append CRLF to the userpwd header */
-  tmp = realloc(*allocuserpwd, strlen(*allocuserpwd) + 3 + 1);
+  /* append CRLF + zero (3 bytes) to the userpwd header */
+  tmp = realloc(*allocuserpwd, strlen(*allocuserpwd) + 3);
   if(!tmp)
     return CURLE_OUT_OF_MEMORY;
   strcat(tmp, "\r\n");

@@ -5,7 +5,6 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * $Id: lib506.c,v 1.22 2008-09-20 04:26:57 yangtse Exp $
  */
 
 #include "test.h"
@@ -132,7 +131,7 @@ static void *fire(void *ptr)
 /* build request url */
 static char *suburl(const char *base, int i)
 {
-  return curl_maprintf("%s000%c", base, 48+i);
+  return curl_maprintf("%s%.4d", base, i);
 }
 
 
@@ -224,12 +223,12 @@ int test(char *URL)
 
   url = suburl( URL, i );
   headers = sethost( NULL );
-  curl_easy_setopt( curl, CURLOPT_HTTPHEADER, headers );
-  curl_easy_setopt( curl, CURLOPT_URL,        url );
+  test_setopt( curl, CURLOPT_HTTPHEADER, headers );
+  test_setopt( curl, CURLOPT_URL,        url );
   printf( "CURLOPT_SHARE\n" );
-  curl_easy_setopt( curl, CURLOPT_SHARE,      share );
+  test_setopt( curl, CURLOPT_SHARE,      share );
   printf( "CURLOPT_COOKIEJAR\n" );
-  curl_easy_setopt( curl, CURLOPT_COOKIEJAR,  JAR );
+  test_setopt( curl, CURLOPT_COOKIEJAR,  JAR );
 
   printf( "PERFORM\n" );
   curl_easy_perform( curl );
@@ -244,6 +243,8 @@ int test(char *URL)
   } else {
     printf( "SHARE_CLEANUP failed, correct\n" );
   }
+
+test_cleanup:
 
   /* clean up last handle */
   printf( "CLEANUP\n" );

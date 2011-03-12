@@ -5,7 +5,6 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * $Id: ftpupload.c,v 1.15 2008-05-22 21:20:09 danf Exp $
  */
 
 #include <stdio.h>
@@ -31,7 +30,7 @@
 
 #define LOCAL_FILE      "/tmp/uploadthis.txt"
 #define UPLOAD_FILE_AS  "while-uploading.txt"
-#define REMOTE_URL      "ftp://localhost/"  UPLOAD_FILE_AS
+#define REMOTE_URL      "ftp://example.com/"  UPLOAD_FILE_AS
 #define RENAME_FILE_TO  "renamed-and-fine.txt"
 
 /* NOTE: if you want this example to work on Windows with libcurl as a
@@ -49,12 +48,13 @@ static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *stream)
   return retcode;
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
   CURL *curl;
   CURLcode res;
   FILE *hd_src;
   struct stat file_info;
+  curl_off_t fsize;
 
   struct curl_slist *headerlist=NULL;
   static const char buf_1 [] = "RNFR " UPLOAD_FILE_AS;
@@ -65,7 +65,9 @@ int main(int argc, char **argv)
     printf("Couldnt open '%s': %s\n", LOCAL_FILE, strerror(errno));
     return 1;
   }
-  printf("Local file size: %ld bytes.\n", file_info.st_size);
+  fsize = (curl_off_t)file_info.st_size;
+
+  printf("Local file size: %" CURL_FORMAT_CURL_OFF_T " bytes.\n", fsize);
 
   /* get a FILE * of the same file */
   hd_src = fopen(LOCAL_FILE, "rb");
@@ -100,7 +102,7 @@ int main(int argc, char **argv)
        curl_off_t. If you use CURLOPT_INFILESIZE (without _LARGE) you must
        make sure that to pass in a type 'long' argument. */
     curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,
-                     (curl_off_t)file_info.st_size);
+                     (curl_off_t)fsize);
 
     /* Now run off and do what you've been told! */
     res = curl_easy_perform(curl);

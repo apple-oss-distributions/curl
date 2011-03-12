@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2008, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -18,7 +18,6 @@
  * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
  * KIND, either express or implied.
  *
- * $Id: http_negotiate.c,v 1.33 2008-10-23 11:49:19 bagder Exp $
  ***************************************************************************/
 #include "setup.h"
 
@@ -40,7 +39,7 @@
 #include "rawstr.h"
 #include "curl_base64.h"
 #include "http_negotiate.h"
-#include "memory.h"
+#include "curl_memory.h"
 
 #ifdef HAVE_SPNEGO
 #  include <spnegohelp.h>
@@ -140,7 +139,7 @@ int Curl_input_negotiate(struct connectdata *conn, bool proxy,
   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
   gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
   int ret;
-  size_t len;
+  size_t len, rawlen;
   bool gss;
   const char* protocol;
 
@@ -185,9 +184,9 @@ int Curl_input_negotiate(struct connectdata *conn, bool proxy,
 
   len = strlen(header);
   if(len > 0) {
-    int rawlen = Curl_base64_decode(header,
-                                    (unsigned char **)&input_token.value);
-    if(rawlen < 0)
+    rawlen = Curl_base64_decode(header,
+                                (unsigned char **)&input_token.value);
+    if(rawlen == 0)
       return -1;
     input_token.length = rawlen;
 
@@ -277,7 +276,8 @@ CURLcode Curl_output_negotiate(struct connectdata *conn, bool proxy)
   struct negotiatedata *neg_ctx = proxy?&conn->data->state.proxyneg:
     &conn->data->state.negotiate;
   char *encoded = NULL;
-  int len;
+  size_t len;
+  char *userp;
 
 #ifdef HAVE_SPNEGO /* Handle SPNEGO */
   if(checkprefix("Negotiate", neg_ctx->protocol)) {
@@ -306,9 +306,15 @@ CURLcode Curl_output_negotiate(struct connectdata *conn, bool proxy)
       infof(conn->data, "Make SPNEGO Initial Token failed\n");
     }
     else {
-      free(neg_ctx->output_token.value);
+      free(responseToken);
       responseToken = NULL;
+      free(neg_ctx->output_token.value);
       neg_ctx->output_token.value = malloc(spnegoTokenLength);
+      if(neg_ctx->output_token.value == NULL) {
+        free(spnegoToken);
+        spnegoToken = NULL;
+        return CURLE_OUT_OF_MEMORY;
+      }
       memcpy(neg_ctx->output_token.value, spnegoToken,spnegoTokenLength);
       neg_ctx->output_token.length = spnegoTokenLength;
       free(spnegoToken);
@@ -325,12 +331,16 @@ CURLcode Curl_output_negotiate(struct connectdata *conn, bool proxy)
   if(len == 0)
     return CURLE_OUT_OF_MEMORY;
 
-  conn->allocptr.userpwd =
-    aprintf("%sAuthorization: %s %s\r\n", proxy ? "Proxy-" : "",
-            neg_ctx->protocol, encoded);
+  userp = aprintf("%sAuthorization: %s %s\r\n", proxy ? "Proxy-" : "",
+                  neg_ctx->protocol, encoded);
+
+  if(proxy)
+    conn->allocptr.proxyuserpwd = userp;
+  else
+    conn->allocptr.userpwd = userp;
   free(encoded);
   Curl_cleanup_negotiate (conn->data);
-  return (conn->allocptr.userpwd == NULL) ? CURLE_OUT_OF_MEMORY : CURLE_OK;
+  return (userp == NULL) ? CURLE_OUT_OF_MEMORY : CURLE_OK;
 }
 
 static void cleanup(struct negotiatedata *neg_ctx)
