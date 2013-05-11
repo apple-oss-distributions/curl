@@ -1,5 +1,5 @@
-#ifndef __CURL_PARSEDATE_H
-#define __CURL_PARSEDATE_H
+#ifndef HEADER_CURL_PARSEDATE_H
+#define HEADER_CURL_PARSEDATE_H
 /***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
@@ -25,24 +25,7 @@
 extern const char * const Curl_wkday[7];
 extern const char * const Curl_month[12];
 
-/*
- * Curl_parsedate()
- *
- * Returns:
- *
- * PARSEDATE_OK     - a fine conversion
- * PARSEDATE_FAIL   - failed to convert
- * PARSEDATE_LATER  - time overflow at the far end of time_t
- * PARSEDATE_SOONER - time underflow at the low end of time_t
- */
-
-int Curl_parsedate(const char *date, time_t *output);
-
-#define PARSEDATE_OK     0
-#define PARSEDATE_FAIL   -1
-#define PARSEDATE_LATER  1
-#define PARSEDATE_SOONER 2
-
 CURLcode Curl_gmtime(time_t intime, struct tm *store);
 
-#endif
+#endif /* HEADER_CURL_PARSEDATE_H */
+

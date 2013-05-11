@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -27,51 +27,45 @@ AUTOMAKE_OPTIONS = foreign nostdinc
 # might possibly already be installed in the system.
 #
 # $(top_builddir)/include/curl for generated curlbuild.h included from curl.h
-# $(top_builddir)/include for generated curlbuild.h included from lib/setup.h
+# $(top_builddir)/include for generated curlbuild.h inc. from lib/curl_setup.h
 # $(top_srcdir)/include is for libcurl's external include files
 # $(top_builddir)/lib is for libcurl's generated lib/curl_config.h file
-# $(top_srcdir)/lib is for libcurl's lib/setup.h and other "borrowed" files
+# $(top_srcdir)/lib for libcurl's lib/curl_setup.h and other "borrowed" files
 # $(top_builddir)/ares is for in-tree c-ares's generated ares_build.h file
 # $(top_srcdir)/ares is for in-tree c-ares's external include files
 
 if USE_EMBEDDED_ARES
-INCLUDES = -I$(top_builddir)/include/curl \
-           -I$(top_builddir)/include      \
-           -I$(top_srcdir)/include        \
-           -I$(top_builddir)/lib          \
-           -I$(top_srcdir)/lib            \
-	   -I$(top_srcdir)/tests/libtest  \
-           -I$(top_builddir)/ares         \
-           -I$(top_srcdir)/ares
+AM_CPPFLAGS = -I$(top_builddir)/include/curl \
+              -I$(top_builddir)/include      \
+              -I$(top_srcdir)/include        \
+              -I$(top_builddir)/lib          \
+              -I$(top_srcdir)/lib            \
+              -I$(top_srcdir)/tests/libtest  \
+              -I$(top_builddir)/ares         \
+              -I$(top_srcdir)/ares
 else
-INCLUDES = -I$(top_builddir)/include/curl \
-           -I$(top_builddir)/include      \
-           -I$(top_srcdir)/include        \
-           -I$(top_builddir)/lib          \
-           -I$(top_srcdir)/lib 		  \
-	   -I$(top_srcdir)/tests/libtest
+AM_CPPFLAGS = -I$(top_builddir)/include/curl \
+              -I$(top_builddir)/include      \
+              -I$(top_srcdir)/include        \
+              -I$(top_builddir)/lib          \
+              -I$(top_srcdir)/lib            \
+              -I$(top_srcdir)/tests/libtest
 endif
-
-if CURLDEBUG
 
 EXTRA_DIST = Makefile.inc
 
-LDADD = $(top_builddir)/tests/libtest/first.o $(top_builddir)/lib/libcurlu.la \
-	@CURL_LIBS@
-DEPENDENCIES = $(top_builddir)/lib/libcurlu.la
+# Prevent LIBS from being used for all link targets
+LIBS = $(BLANK_AT_MAKETIME)
 
-# Makefile.inc provides the source defines (TESTUTIL, SUPPORTFILES,
-# noinst_PROGRAMS, lib*_SOURCES, and lib*_CFLAGS)
+LDADD = $(top_builddir)/lib/libcurlu.la @LDFLAGS@ @LIBCURL_LIBS@
+DEPENDENCIES = $(top_builddir)/lib/libcurlu.la
+AM_CPPFLAGS += -DCURL_STATICLIB -DUNITTESTS
+
+# Makefile.inc provides neat definitions
 include Makefile.inc
 
-if NO_UNDEFINED
-# The -no-undefined flag is crucial to build fine on some platforms
-UNDEF = -no-undefined
-endif
-
-
+if BUILD_UNITTESTS
+noinst_PROGRAMS = $(UNITPROGS)
 else
-# do nothing if debug was not enabled
-all:
-
+noinst_PROGRAMS =
 endif

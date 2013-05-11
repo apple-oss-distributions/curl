@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -35,20 +35,20 @@
  * 01-29-97 11:32PM <DIR> prog
  */
 
-#include "setup.h"
+#include "curl_setup.h"
 
-#include <time.h>
+#ifndef CURL_DISABLE_FTP
 
-#include "ftplistparser.h"
-#include "curl_fnmatch.h"
+#include <curl/curl.h>
 
 #include "urldata.h"
-#include "ftp.h"
 #include "fileinfo.h"
 #include "llist.h"
 #include "strtoofft.h"
 #include "rawstr.h"
 #include "ftp.h"
+#include "ftplistparser.h"
+#include "curl_fnmatch.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
@@ -329,7 +329,8 @@ static CURLcode ftp_pl_insert_finfo(struct connectdata *conn,
     compare = Curl_fnmatch;
 
   /* filter pattern-corresponding filenames */
-  if(compare(conn->data->set.fnmatch_data, wc->pattern, finfo->filename) == 0) {
+  if(compare(conn->data->set.fnmatch_data, wc->pattern,
+             finfo->filename) == 0) {
     /* discard symlink which is containing multiple " -> " */
     if((finfo->filetype == CURLFILETYPE_SYMLINK) && finfo->strings.target &&
        (strstr(finfo->strings.target, " -> "))) {
@@ -645,7 +646,7 @@ size_t Curl_ftp_parselist(char *buffer, size_t size, size_t nmemb,
             parser->state.UNIX.main = PL_UNIX_TIME;
             parser->state.UNIX.sub.time = PL_UNIX_TIME_PREPART1;
           }
-          else if (!ISDIGIT(c)) {
+          else if(!ISDIGIT(c)) {
             PL_ERROR(conn, CURLE_FTP_BAD_FILE_LIST);
             return bufflen;
           }
@@ -960,7 +961,8 @@ size_t Curl_ftp_parselist(char *buffer, size_t size, size_t nmemb,
             }
             else {
               char *endptr;
-              finfo->size = curlx_strtoofft(finfo->b_data + parser->item_offset,
+              finfo->size = curlx_strtoofft(finfo->b_data +
+                                            parser->item_offset,
                                             &endptr, 10);
               if(!*endptr) {
                 if(finfo->size == CURL_OFF_T_MAX ||
@@ -1044,3 +1046,5 @@ size_t Curl_ftp_parselist(char *buffer, size_t size, size_t nmemb,
 
   return bufflen;
 }
+
+#endif /* CURL_DISABLE_FTP */

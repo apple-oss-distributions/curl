@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -19,10 +19,7 @@
  * KIND, either express or implied.
  *
  ***************************************************************************/
-
-#define CURL_NO_OLDIES
-
-#include "setup.h"
+#include "server_setup.h"
 
 #include "getpart.h"
 
@@ -31,7 +28,7 @@
    versions instead */
 #include "curlx.h" /* from the private lib dir */
 
-/* just to please base64.h we create a fake struct */
+/* just to please curl_base64.h we create a fake struct */
 struct SessionHandle {
   int fake;
 };
@@ -49,7 +46,7 @@ struct SessionHandle {
 #ifdef DEBUG_GETPART
 #define show(x) printf x
 #else
-#define show(x)
+#define show(x) Curl_nop_stmt
 #endif
 
 #if defined(_MSC_VER) && defined(_DLL)
@@ -61,6 +58,9 @@ curl_free_callback Curl_cfree = (curl_free_callback)free;
 curl_realloc_callback Curl_crealloc = (curl_realloc_callback)realloc;
 curl_strdup_callback Curl_cstrdup = (curl_strdup_callback)strdup;
 curl_calloc_callback Curl_ccalloc = (curl_calloc_callback)calloc;
+#ifdef WIN32
+curl_wcsdup_callback Curl_cwcsdup = (curl_wcsdup_callback)wcsdup;
+#endif
 
 #if defined(_MSC_VER) && defined(_DLL)
 #  pragma warning(default:4232) /* MSVC extension, dllimport identity */
@@ -166,7 +166,9 @@ static int appenddata(char  **dst_buf,   /* dest buffer */
 
   if(src_b64) {
     /* base64 decode the given buffer */
-    src_len = Curl_base64_decode(src_buf, &buf64.as_uchar);
+    int error = (int) Curl_base64_decode(src_buf, &buf64.as_uchar, &src_len);
+    if(error)
+      return GPE_OUT_OF_MEMORY;
     src_buf = buf64.as_char;
     if(!src_len || !src_buf) {
       /*

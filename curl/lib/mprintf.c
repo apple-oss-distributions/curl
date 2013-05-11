@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1999 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1999 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -35,12 +35,7 @@
  * page at http://daniel.haxx.se/trio/
  */
 
-#include "setup.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <ctype.h>
-#include <string.h>
+#include "curl_setup.h"
 
 #if defined(DJGPP) && (DJGPP_MINOR < 4)
 #undef _MPRINTF_REPLACE /* don't use x_was_used() here */
@@ -108,7 +103,7 @@ static const char upper_digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
       done++; \
     else \
      return done; /* return immediately on failure */ \
-  } while(0)
+  } WHILE_FALSE
 
 /* Data type to read from the arglist */
 typedef enum  {
@@ -124,7 +119,7 @@ typedef enum  {
   FORMAT_WIDTH /* For internal use */
 } FormatType;
 
-/* convertion and display flags */
+/* conversion and display flags */
 enum {
   FLAGS_NEW        = 0,
   FLAGS_SPACE      = 1<<0,
@@ -207,101 +202,6 @@ static int dprintf_IsQualifierNoDollar(char c)
     return 0; /* false */
   }
 }
-
-#ifdef DPRINTF_DEBUG2
-static void dprintf_Pass1Report(va_stack_t *vto, int max)
-{
-  int i;
-  char buffer[256];
-  int bit;
-  int flags;
-
-  for(i=0; i<max; i++) {
-    char *type;
-    switch(vto[i].type) {
-    case FORMAT_UNKNOWN:
-      type = "unknown";
-      break;
-    case FORMAT_STRING:
-      type ="string";
-      break;
-    case FORMAT_PTR:
-      type ="pointer";
-      break;
-    case FORMAT_INT:
-      type = "int";
-      break;
-    case FORMAT_INTPTR:
-      type = "intptr";
-      break;
-    case FORMAT_LONG:
-      type = "long";
-      break;
-    case FORMAT_LONGLONG:
-      type = "long long";
-      break;
-    case FORMAT_DOUBLE:
-      type = "double";
-      break;
-    case FORMAT_LONGDOUBLE:
-      type = "long double";
-      break;
-    }
-
-
-    buffer[0]=0;
-
-    for(bit=0; bit<31; bit++) {
-      flags = vto[i].flags & (1<<bit);
-
-      if(flags & FLAGS_SPACE)
-        strcat(buffer, "space ");
-      else if(flags & FLAGS_SHOWSIGN)
-        strcat(buffer, "plus ");
-      else if(flags & FLAGS_LEFT)
-        strcat(buffer, "left ");
-      else if(flags & FLAGS_ALT)
-        strcat(buffer, "alt ");
-      else if(flags & FLAGS_SHORT)
-        strcat(buffer, "short ");
-      else if(flags & FLAGS_LONG)
-        strcat(buffer, "long ");
-      else if(flags & FLAGS_LONGLONG)
-        strcat(buffer, "longlong ");
-      else if(flags & FLAGS_LONGDOUBLE)
-        strcat(buffer, "longdouble ");
-      else if(flags & FLAGS_PAD_NIL)
-        strcat(buffer, "padnil ");
-      else if(flags & FLAGS_UNSIGNED)
-        strcat(buffer, "unsigned ");
-      else if(flags & FLAGS_OCTAL)
-        strcat(buffer, "octal ");
-      else if(flags & FLAGS_HEX)
-        strcat(buffer, "hex ");
-      else if(flags & FLAGS_UPPER)
-        strcat(buffer, "upper ");
-      else if(flags & FLAGS_WIDTH)
-        strcat(buffer, "width ");
-      else if(flags & FLAGS_WIDTHPARAM)
-        strcat(buffer, "widthparam ");
-      else if(flags & FLAGS_PREC)
-        strcat(buffer, "precision ");
-      else if(flags & FLAGS_PRECPARAM)
-        strcat(buffer, "precparam ");
-      else if(flags & FLAGS_CHAR)
-        strcat(buffer, "char ");
-      else if(flags & FLAGS_FLOATE)
-        strcat(buffer, "floate ");
-      else if(flags & FLAGS_FLOATG)
-        strcat(buffer, "floatg ");
-    }
-    printf("REPORT: %d. %s [%s]\n", i, type, buffer);
-
-  }
-
-
-}
-#endif
 
 /******************************************************************
  *
@@ -542,72 +442,66 @@ static long dprintf_Pass1(const char *format, va_stack_t *vto, char **endpos,
     }
   }
 
-#ifdef DPRINTF_DEBUG2
-  dprintf_Pass1Report(vto, max_param);
-#endif
-
   /* Read the arg list parameters into our data list */
-  for (i=0; i<max_param; i++) {
-    if((i + 1 < max_param) && (vto[i + 1].type == FORMAT_WIDTH))
-      {
-        /* Width/precision arguments must be read before the main argument
-         * they are attached to
-         */
-        vto[i + 1].data.num.as_signed = (mp_intmax_t)va_arg(arglist, int);
-      }
+  for(i=0; i<max_param; i++) {
+    if((i + 1 < max_param) && (vto[i + 1].type == FORMAT_WIDTH)) {
+      /* Width/precision arguments must be read before the main argument
+       * they are attached to
+       */
+      vto[i + 1].data.num.as_signed = (mp_intmax_t)va_arg(arglist, int);
+    }
 
-    switch (vto[i].type)
-      {
-      case FORMAT_STRING:
-        vto[i].data.str = va_arg(arglist, char *);
-        break;
+    switch (vto[i].type) {
+    case FORMAT_STRING:
+      vto[i].data.str = va_arg(arglist, char *);
+      break;
 
-      case FORMAT_INTPTR:
-      case FORMAT_UNKNOWN:
-      case FORMAT_PTR:
-        vto[i].data.ptr = va_arg(arglist, void *);
-        break;
+    case FORMAT_INTPTR:
+    case FORMAT_UNKNOWN:
+    case FORMAT_PTR:
+      vto[i].data.ptr = va_arg(arglist, void *);
+      break;
 
-      case FORMAT_INT:
+    case FORMAT_INT:
 #ifdef HAVE_LONG_LONG_TYPE
-        if((vto[i].flags & FLAGS_LONGLONG) && (vto[i].flags & FLAGS_UNSIGNED))
-          vto[i].data.num.as_unsigned =
-            (mp_uintmax_t)va_arg(arglist, mp_uintmax_t);
-        else if(vto[i].flags & FLAGS_LONGLONG)
-          vto[i].data.num.as_signed =
-            (mp_intmax_t)va_arg(arglist, mp_intmax_t);
-        else
+      if((vto[i].flags & FLAGS_LONGLONG) && (vto[i].flags & FLAGS_UNSIGNED))
+        vto[i].data.num.as_unsigned =
+          (mp_uintmax_t)va_arg(arglist, mp_uintmax_t);
+      else if(vto[i].flags & FLAGS_LONGLONG)
+        vto[i].data.num.as_signed =
+          (mp_intmax_t)va_arg(arglist, mp_intmax_t);
+      else
 #endif
-        {
-          if((vto[i].flags & FLAGS_LONG) && (vto[i].flags & FLAGS_UNSIGNED))
-            vto[i].data.num.as_unsigned =
-              (mp_uintmax_t)va_arg(arglist, unsigned long);
-          else if(vto[i].flags & FLAGS_LONG)
-            vto[i].data.num.as_signed =
-              (mp_intmax_t)va_arg(arglist, long);
-          else if(vto[i].flags & FLAGS_UNSIGNED)
-            vto[i].data.num.as_unsigned =
-              (mp_uintmax_t)va_arg(arglist, unsigned int);
-          else
-            vto[i].data.num.as_signed =
-              (mp_intmax_t)va_arg(arglist, int);
-        }
-        break;
-
-      case FORMAT_DOUBLE:
-        vto[i].data.dnum = va_arg(arglist, double);
-        break;
-
-      case FORMAT_WIDTH:
-        /* Argument has been read. Silently convert it into an integer
-         * for later use
-         */
-        vto[i].type = FORMAT_INT;
-        break;
-
-      default:
-        break;
+      {
+        if((vto[i].flags & FLAGS_LONG) && (vto[i].flags & FLAGS_UNSIGNED))
+          vto[i].data.num.as_unsigned =
+            (mp_uintmax_t)va_arg(arglist, unsigned long);
+        else if(vto[i].flags & FLAGS_LONG)
+          vto[i].data.num.as_signed =
+            (mp_intmax_t)va_arg(arglist, long);
+        else if(vto[i].flags & FLAGS_UNSIGNED)
+          vto[i].data.num.as_unsigned =
+            (mp_uintmax_t)va_arg(arglist, unsigned int);
+        else
+          vto[i].data.num.as_signed =
+            (mp_intmax_t)va_arg(arglist, int);
       }
+      break;
+
+    case FORMAT_DOUBLE:
+      vto[i].data.dnum = va_arg(arglist, double);
+      break;
+
+    case FORMAT_WIDTH:
+      /* Argument has been read. Silently convert it into an integer
+       * for later use
+       */
+      vto[i].type = FORMAT_INT;
+      break;
+
+    default:
+      break;
+    }
   }
 
   return max_param;
@@ -692,7 +586,7 @@ static int dprintf_formatf(
       continue;
     }
 
-    /* If this is a positional parameter, the position must follow imediately
+    /* If this is a positional parameter, the position must follow immediately
        after the %, thus create a %<num>$ sequence */
     param=dprintf_DollarString(f, &f);
 
@@ -853,7 +747,7 @@ static int dprintf_formatf(
         size_t len;
 
         str = (char *) p->data.str;
-        if( str == NULL) {
+        if(str == NULL) {
           /* Write null[] if there's space.  */
           if(prec == -1 || prec >= (long) sizeof(null) - 1) {
             str = null;
@@ -914,7 +808,7 @@ static int dprintf_formatf(
           if(p->flags & FLAGS_LEFT)
             while(width-- > 0)
               OUTCHAR(' ');
-          for (point = strnil; *point != '\0'; ++point)
+          for(point = strnil; *point != '\0'; ++point)
             OUTCHAR(*point);
           if(! (p->flags & FLAGS_LEFT))
             while(width-- > 0)
@@ -926,7 +820,7 @@ static int dprintf_formatf(
     case FORMAT_DOUBLE:
       {
         char formatbuf[32]="%";
-        char *fptr;
+        char *fptr = &formatbuf[1];
         size_t left = sizeof(formatbuf)-strlen(formatbuf);
         int len;
 
@@ -943,15 +837,15 @@ static int dprintf_formatf(
           prec = (long)vto[p->precision].data.num.as_signed;
 
         if(p->flags & FLAGS_LEFT)
-          strcat(formatbuf, "-");
+          *fptr++ = '-';
         if(p->flags & FLAGS_SHOWSIGN)
-          strcat(formatbuf, "+");
+          *fptr++ = '+';
         if(p->flags & FLAGS_SPACE)
-          strcat(formatbuf, " ");
+          *fptr++ = ' ';
         if(p->flags & FLAGS_ALT)
-          strcat(formatbuf, "#");
+          *fptr++ = '#';
 
-        fptr=&formatbuf[strlen(formatbuf)];
+        *fptr = 0;
 
         if(width >= 0) {
           /* RECURSIVE USAGE */
@@ -976,8 +870,8 @@ static int dprintf_formatf(
 
         *fptr = 0; /* and a final zero termination */
 
-        /* NOTE NOTE NOTE!! Not all sprintf() implementations returns number
-           of output characters */
+        /* NOTE NOTE NOTE!! Not all sprintf implementations return number of
+           output characters */
         (sprintf)(work, formatbuf, p->data.dnum);
 
         for(fptr=work; *fptr; fptr++)
@@ -1202,45 +1096,3 @@ int curl_mvfprintf(FILE *whereto, const char *format, va_list ap_save)
 {
   return dprintf_formatf(whereto, fputc, format, ap_save);
 }
-
-#ifdef DPRINTF_DEBUG
-int main()
-{
-  char buffer[129];
-  char *ptr;
-#ifdef HAVE_LONG_LONG_TYPE
-  LONG_LONG_TYPE one=99;
-  LONG_LONG_TYPE two=100;
-  LONG_LONG_TYPE test = 0x1000000000LL;
-  curl_mprintf("%lld %lld %lld\n", one, two, test);
-#endif
-
-  curl_mprintf("%3d %5d\n", 10, 1998);
-
-  ptr=curl_maprintf("test this then baby %s%s%s%s%s%s %d %d %d loser baby get a kiss in yer face now!", "", "pretty long string pretty long string pretty long string pretty long string pretty long string", "/", "/", "/", "pretty long string", 1998, 1999, 2001);
-
-  puts(ptr);
-
-  memset(ptr, 55, strlen(ptr)+1);
-
-  free(ptr);
-
-#if 1
-  curl_mprintf(buffer, "%s %s %d", "daniel", "stenberg", 19988);
-  puts(buffer);
-
-  curl_mfprintf(stderr, "%s %#08x\n", "dummy", 65);
-
-  printf("%s %#08x\n", "dummy", 65);
-  {
-    double tryout = 3.14156592;
-    curl_mprintf(buffer, "%.2g %G %f %e %E", tryout, tryout, tryout, tryout, tryout);
-    puts(buffer);
-    printf("%.2g %G %f %e %E\n", tryout, tryout, tryout, tryout, tryout);
-  }
-#endif
-
-  return 0;
-}
-
-#endif

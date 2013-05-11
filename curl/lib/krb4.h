@@ -1,5 +1,5 @@
-#ifndef __KRB4_H
-#define __KRB4_H
+#ifndef HEADER_CURL_KRB4_H
+#define HEADER_CURL_KRB4_H
 /***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
@@ -7,7 +7,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -47,9 +47,11 @@ extern struct Curl_sec_client_mech Curl_krb5_client_mech;
 #endif
 
 CURLcode Curl_krb_kauth(struct connectdata *conn);
-int Curl_sec_read_msg (struct connectdata *conn, char *, enum protection_level);
+int Curl_sec_read_msg (struct connectdata *conn, char *,
+                       enum protection_level);
 void Curl_sec_end (struct connectdata *);
 CURLcode Curl_sec_login (struct connectdata *);
 int Curl_sec_request_prot (struct connectdata *conn, const char *level);
 
-#endif
+#endif /* HEADER_CURL_KRB4_H */
+

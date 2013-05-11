@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -20,10 +20,7 @@
  *
  ***************************************************************************/
 
-#include "setup.h"
-
-#include <string.h>
-#include <stdio.h>
+#include "curl_setup.h"
 
 #include <curl/curl.h>
 #include "urldata.h"
@@ -33,7 +30,11 @@
 #include <curl/mprintf.h>
 
 #ifdef USE_ARES
-#include <ares_version.h>
+#  if defined(CURL_STATICLIB) && !defined(CARES_STATICLIB) && \
+     (defined(WIN32) || defined(_WIN32) || defined(__SYMBIAN32__))
+#    define CARES_STATICLIB
+#  endif
+#  include <ares.h>
 #endif
 
 #ifdef USE_LIBIDN
@@ -63,10 +64,11 @@
 char *curl_version(void)
 {
   static char version[200];
-  char *ptr=version;
+  char *ptr = version;
   size_t len;
   size_t left = sizeof(version);
-  strcpy(ptr, LIBCURL_NAME "/" LIBCURL_VERSION );
+
+  strcpy(ptr, LIBCURL_NAME "/" LIBCURL_VERSION);
   len = strlen(ptr);
   left -= len;
   ptr += len;
@@ -100,7 +102,7 @@ char *curl_version(void)
   }
 #endif
 #ifdef USE_WIN32_IDN
-  len = snprintf(ptr, left, " IDN-Windows-native");
+  len = snprintf(ptr, left, " WinIDN");
   left -= len;
   ptr += len;
 #endif
@@ -123,17 +125,21 @@ char *curl_version(void)
 #ifdef USE_LIBRTMP
   {
     char suff[2];
-    if (RTMP_LIB_VERSION & 0xff) {
+    if(RTMP_LIB_VERSION & 0xff) {
       suff[0] = (RTMP_LIB_VERSION & 0xff) + 'a' - 1;
       suff[1] = '\0';
-    } else {
-      suff[0] = '\0';
     }
-    len = snprintf(ptr, left, " librtmp/%d.%d%s",
-      RTMP_LIB_VERSION >> 16, (RTMP_LIB_VERSION >> 8) & 0xff, suff);
+    else
+      suff[0] = '\0';
+
+    snprintf(ptr, left, " librtmp/%d.%d%s",
+             RTMP_LIB_VERSION >> 16, (RTMP_LIB_VERSION >> 8) & 0xff,
+             suff);
 /*
   If another lib version is added below this one, this code would
   also have to do:
+
+    len = what snprintf() returned
 
     left -= len;
     ptr += len;
@@ -180,8 +186,9 @@ static const char * const protocols[] = {
 #endif
 #ifndef CURL_DISABLE_LDAP
   "ldap",
-#if (defined(USE_OPENLDAP) && defined(USE_SSL)) || \
-   (!defined(USE_OPENLDAP) && defined(HAVE_LDAP_SSL))
+#if !defined(CURL_DISABLE_LDAPS) && \
+    ((defined(USE_OPENLDAP) && defined(USE_SSL)) || \
+     (!defined(USE_OPENLDAP) && defined(HAVE_LDAP_SSL)))
   "ldaps",
 #endif
 #endif
@@ -236,6 +243,9 @@ static curl_version_info_data version_info = {
 #endif
 #ifdef USE_NTLM
   | CURL_VERSION_NTLM
+#endif
+#if defined(USE_NTLM) && defined(NTLM_WB_ENABLED)
+  | CURL_VERSION_NTLM_WB
 #endif
 #ifdef USE_WINDOWS_SSPI
   | CURL_VERSION_SSPI

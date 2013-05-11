@@ -5,7 +5,7 @@
 #Description: makefile to be used in order to compile libcurl for VxWoorks 6.3.
 #
 #How to use:
-#             1. Adjust environment variables at the file begining
+#             1. Adjust environment variables at the file beginning
 #             2. Open the Command Prompt window and change directory ('cd')
 #                into the 'lib' folder
 #             3. Add <CYGWIN>/bin folder to the PATH environment variable
@@ -33,10 +33,10 @@ BUILD_TYPE := debug
 USER_CFLAGS:=
 
 # directories where to seek for includes and libraries
-OPENSSL_INC := D:/libraries/openssl/openssl-0.9.8a-vxWorks6.3/include
-OPENSSL_LIB := D:/libraries/openssl/openssl-0.9.8a-vxWorks6.3
-ZLIB_INC    := D:/libraries/zlib/zlib-1.2.3-VxWorks6.3/zlib-1.2.3
-ZLIB_LIB    := D:/libraries/zlib/zlib-1.2.3-VxWorks6.3/binaries/vxworks_3.1_gnu/Debug/lib
+OPENSSL_INC := D:/libraries/openssl/openssl-0.9.8y-vxWorks6.3/include
+OPENSSL_LIB := D:/libraries/openssl/openssl-0.9.8y-vxWorks6.3
+ZLIB_INC    := D:/libraries/zlib/zlib-1.2.7-VxWorks6.3/zlib-1.2.7
+ZLIB_LIB    := D:/libraries/zlib/zlib-1.2.7-VxWorks6.3/binaries/vxworks_3.1_gnu/Debug/lib
 ARES_INC    :=
 ARES_LIB    :=
 

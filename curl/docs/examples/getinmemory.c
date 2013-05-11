@@ -1,12 +1,25 @@
-/*****************************************************************************
+/***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
  *                             / __| | | | |_) | |
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
+ * Copyright (C) 1998 - 2011, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
- * Example source code to show how the callback function can be used to
+ * This software is licensed as described in the file COPYING, which
+ * you should have received as part of this distribution. The terms
+ * are also available at http://curl.haxx.se/docs/copyright.html.
+ *
+ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
+ * copies of the Software, and permit persons to whom the Software is
+ * furnished to do so, under the terms of the COPYING file.
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+ * KIND, either express or implied.
+ *
+ ***************************************************************************/
+/* Example source code to show how the callback function can be used to
  * download data into a chunk of memory instead of storing it in a file.
  */
 
@@ -23,19 +36,19 @@ struct MemoryStruct {
 
 
 static size_t
-WriteMemoryCallback(void *ptr, size_t size, size_t nmemb, void *data)
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
   size_t realsize = size * nmemb;
-  struct MemoryStruct *mem = (struct MemoryStruct *)data;
+  struct MemoryStruct *mem = (struct MemoryStruct *)userp;
 
   mem->memory = realloc(mem->memory, mem->size + realsize + 1);
-  if (mem->memory == NULL) {
+  if(mem->memory == NULL) {
     /* out of memory! */
     printf("not enough memory (realloc returned NULL)\n");
-    exit(EXIT_FAILURE);
+    return 0;
   }
 
-  memcpy(&(mem->memory[mem->size]), ptr, realsize);
+  memcpy(&(mem->memory[mem->size]), contents, realsize);
   mem->size += realsize;
   mem->memory[mem->size] = 0;
 
@@ -46,6 +59,7 @@ WriteMemoryCallback(void *ptr, size_t size, size_t nmemb, void *data)
 int main(void)
 {
   CURL *curl_handle;
+  CURLcode res;
 
   struct MemoryStruct chunk;
 
@@ -71,23 +85,30 @@ int main(void)
   curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
 
   /* get it! */
-  curl_easy_perform(curl_handle);
+  res = curl_easy_perform(curl_handle);
+
+  /* check for errors */
+  if(res != CURLE_OK) {
+    fprintf(stderr, "curl_easy_perform() failed: %s\n",
+            curl_easy_strerror(res));
+  }
+  else {
+    /*
+     * Now, our chunk.memory points to a memory block that is chunk.size
+     * bytes big and contains the remote file.
+     *
+     * Do something nice with it!
+     *
+     * You should be aware of the fact that at this point we might have an
+     * allocated data block, and nothing has yet deallocated that data. So when
+     * you're done with it, you should free() it as a nice application.
+     */
+
+    printf("%lu bytes retrieved\n", (long)chunk.size);
+  }
 
   /* cleanup curl stuff */
   curl_easy_cleanup(curl_handle);
-
-  /*
-   * Now, our chunk.memory points to a memory block that is chunk.size
-   * bytes big and contains the remote file.
-   *
-   * Do something nice with it!
-   *
-   * You should be aware of the fact that at this point we might have an
-   * allocated data block, and nothing has yet deallocated that data. So when
-   * you're done with it, you should free() it as a nice application.
-   */
-
-  printf("%lu bytes retrieved\n", (long)chunk.size);
 
   if(chunk.memory)
     free(chunk.memory);

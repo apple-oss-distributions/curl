@@ -6,7 +6,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -70,10 +70,10 @@ use vars qw($version $fixed $infixed $CURLDIR $git $pwd $build $buildlog
 
 use vars qw($name $email $desc $confopts $runtestopts $setupfile $mktarball
             $extvercmd $nogitpull $nobuildconf $crosscompile
-            $timestamp);
+            $timestamp $notes);
 
 # version of this script
-$version='2010-08-20';
+$version='2012-11-30';
 $fixed=0;
 
 # Determine if we're running from git or a canned copy of curl,
@@ -108,8 +108,9 @@ while ($ARGV[0]) {
   elsif ($ARGV[0] =~ /--desc=/) {
     $desc = (split(/=/, shift @ARGV))[1];
   }
-  elsif ($ARGV[0] =~ /--configure=/) {
-    $confopts = (split(/=/, shift @ARGV))[1];
+  elsif ($ARGV[0] =~ /--configure=(.*)/) {
+    $confopts = $1;
+    shift @ARGV;
   }
   elsif (($ARGV[0] eq "--nocvsup") || ($ARGV[0] eq "--nogitpull")) {
     $nogitpull=1;
@@ -307,6 +308,7 @@ if ($fixed < 4) {
     print F "email='$email'\n";
     print F "desc='$desc'\n";
     print F "confopts='$confopts'\n";
+    print F "notes='$notes'\n";
     print F "fixed='$fixed'\n";
     close(F);
 }
@@ -329,13 +331,22 @@ logit 'TRANSFER CONTROL ==== 1120 CHAR LINE' . $str1066os . 'LINE_END';
 logit "NAME = $name";
 logit "EMAIL = $email";
 logit "DESC = $desc";
+logit "NOTES = $notes";
 logit "CONFOPTS = $confopts";
 logit "CPPFLAGS = ".$ENV{CPPFLAGS};
 logit "CFLAGS = ".$ENV{CFLAGS};
 logit "LDFLAGS = ".$ENV{LDFLAGS};
+logit "LIBS = ".$ENV{LIBS};
 logit "CC = ".$ENV{CC};
+logit "TMPDIR = ".$ENV{TMPDIR};
 logit "MAKEFLAGS = ".$ENV{MAKEFLAGS};
+logit "ACLOCAL_FLAGS = ".$ENV{ACLOCAL_FLAGS};
 logit "PKG_CONFIG_PATH = ".$ENV{PKG_CONFIG_PATH};
+logit "DYLD_LIBRARY_PATH = ".$ENV{DYLD_LIBRARY_PATH};
+logit "LD_LIBRARY_PATH = ".$ENV{LD_LIBRARY_PATH};
+logit "LIBRARY_PATH = ".$ENV{LIBRARY_PATH};
+logit "SHLIB_PATH = ".$ENV{SHLIB_PATH};
+logit "LIBPATH = ".$ENV{LIBPATH};
 logit "target = ".$targetos;
 logit "version = $version"; # script version
 logit "date = $timestamp";  # When the test build starts
@@ -346,14 +357,20 @@ $str1066os = undef;
 # off that path from all possible logs and error messages etc.
 $pwd = getcwd();
 
+my $have_embedded_ares = 0;
+
 if (-d $CURLDIR) {
   if ($git && -d "$CURLDIR/.git") {
     logit "$CURLDIR is verified to be a fine git source dir";
     # remove the generated sources to force them to be re-generated each
     # time we run this test
-    unlink "$CURLDIR/src/hugehelp.c";
+    unlink "$CURLDIR/src/tool_hugehelp.c";
+    # find out if curl source dir has an in-tree c-ares repo
+    $have_embedded_ares = 1 if (-f "$CURLDIR/ares/GIT-INFO");
   } elsif (!$git && -f "$CURLDIR/tests/testcurl.pl") {
-    logit "$CURLDIR is verified to be a fine daily source dir"
+    logit "$CURLDIR is verified to be a fine daily source dir";
+    # find out if curl source dir has an in-tree c-ares extracted tarball
+    $have_embedded_ares = 1 if (-f "$CURLDIR/ares/ares_build.h");
   } else {
     mydie "$CURLDIR is not a daily source dir or checked out from git!"
   }
@@ -428,13 +445,16 @@ if ($git) {
     unlink "autom4te.cache";
 
     # generate the build files
-    logit "invoke buildconf, but filter off aclocal underquoted definition warnings";
+    logit "invoke buildconf";
     open(F, "./buildconf 2>&1 |") or die;
     open(LOG, ">$buildlog") or die;
     while (<F>) {
-      next if /warning: underquoted definition of/;
-      print;
-      print LOG;
+      my $ll = $_;
+      # ignore messages pertaining to third party m4 files we don't care
+      next if ($ll =~ /aclocal\/gtk\.m4/);
+      next if ($ll =~ /aclocal\/gtkextra\.m4/);
+      print $ll;
+      print LOG $ll;
     }
     close(F);
     close(LOG);
@@ -579,7 +599,8 @@ while (<F>) {
 }
 close(F);
 
-if (grepfile("^#define USE_ARES", "lib/$confheader")) {
+if (($have_embedded_ares) &&
+    (grepfile("^#define USE_ARES", "lib/$confheader"))) {
   print "\n";
   logit "setup to build ares";
 
@@ -681,6 +702,26 @@ if (!$crosscompile || (($extvercmd ne '') && (-x $extvercmd))) {
 }
 
 if ($configurebuild && !$crosscompile) {
+  my $host_triplet = get_host_triplet();
+  # build example programs for selected build targets
+  if(($host_triplet =~ /([^-]+)-([^-]+)-irix(.*)/) ||
+     ($host_triplet =~ /([^-]+)-([^-]+)-aix(.*)/) ||
+     ($host_triplet =~ /([^-]+)-([^-]+)-osf(.*)/) ||
+     ($host_triplet =~ /([^-]+)-([^-]+)-solaris2(.*)/)) {
+    chdir "$pwd/$build/docs/examples";
+    logit_spaced "build examples";
+    open(F, "$make -i 2>&1 |") or die;
+    open(LOG, ">$buildlog") or die;
+    while (<F>) {
+      s/$pwd//g;
+      print;
+      print LOG;
+    }
+    close(F);
+    close(LOG);
+    chdir "$pwd/$build";
+  }
+  # build and run full test suite
   my $o;
   if($runtestopts) {
       $o = "TEST_F=\"$runtestopts\" ";
@@ -710,8 +751,24 @@ if ($configurebuild && !$crosscompile) {
 }
 else {
   if($crosscompile) {
-    # build test harness programs for selected cross-compiles
     my $host_triplet = get_host_triplet();
+    # build example programs for selected cross-compiles
+    if(($host_triplet =~ /([^-]+)-([^-]+)-mingw(.*)/) ||
+       ($host_triplet =~ /([^-]+)-([^-]+)-android(.*)/)) {
+      chdir "$pwd/$build/docs/examples";
+      logit_spaced "build examples";
+      open(F, "$make -i 2>&1 |") or die;
+      open(LOG, ">$buildlog") or die;
+      while (<F>) {
+        s/$pwd//g;
+        print;
+        print LOG;
+      }
+      close(F);
+      close(LOG);
+      chdir "$pwd/$build";
+    }
+    # build test harness programs for selected cross-compiles
     if($host_triplet =~ /([^-]+)-([^-]+)-mingw(.*)/) {
       chdir "$pwd/$build/tests";
       logit_spaced "build test harness";

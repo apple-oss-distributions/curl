@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -20,33 +20,18 @@
  *
  ***************************************************************************/
 
-#include "setup.h"
+#include "curl_setup.h"
 
-/* -- WIN32 approved -- */
-#include <stdio.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <errno.h>
+/*
+ * See comment in curl_memory.h for the explanation of this sanity check.
+ */
 
-#include "strequal.h"
-
-#ifdef WIN32
-#include <time.h>
-#include <io.h>
-#else
-#ifdef HAVE_SYS_SOCKET_H
-#include <sys/socket.h>
+#ifdef CURLX_NO_MEMORY_CALLBACKS
+#error "libcurl shall not ever be built with CURLX_NO_MEMORY_CALLBACKS defined"
 #endif
+
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
-#endif
-#ifdef HAVE_SYS_TIME_H
-#include <sys/time.h>
-#endif
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
 #endif
 #ifdef HAVE_NETDB_H
 #include <netdb.h>
@@ -65,8 +50,7 @@
 #include <sys/param.h>
 #endif
 
-#endif  /* WIN32 ... */
-
+#include "strequal.h"
 #include "urldata.h"
 #include <curl/curl.h>
 #include "transfer.h"
@@ -81,25 +65,17 @@
 #include "easyif.h"
 #include "select.h"
 #include "sendf.h" /* for failf function prototype */
-#include "http_ntlm.h"
+#include "curl_ntlm.h"
 #include "connect.h" /* for Curl_getconnectinfo */
 #include "slist.h"
+#include "amigaos.h"
 #include "curl_rand.h"
+#include "non-ascii.h"
+#include "warnless.h"
+#include "conncache.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
-
-#if defined(CURL_DOES_CONVERSIONS) && defined(HAVE_ICONV)
-#include <iconv.h>
-/* set default codesets for iconv */
-#ifndef CURL_ICONV_CODESET_OF_NETWORK
-#define CURL_ICONV_CODESET_OF_NETWORK "ISO8859-1"
-#endif
-#ifndef CURL_ICONV_CODESET_FOR_UTF8
-#define CURL_ICONV_CODESET_FOR_UTF8   "UTF-8"
-#endif
-#define ICONV_ERROR  (size_t)-1
-#endif /* CURL_DOES_CONVERSIONS && HAVE_ICONV */
 
 /* The last #include file should be: */
 #include "memdebug.h"
@@ -144,8 +120,8 @@ static CURLcode win32_init(void)
   /* wVersionRequested in wVersion. wHighVersion contains the */
   /* highest supported version. */
 
-  if( LOBYTE( wsaData.wVersion ) != LOBYTE(wVersionRequested) ||
-       HIBYTE( wsaData.wVersion ) != HIBYTE(wVersionRequested) ) {
+  if(LOBYTE( wsaData.wVersion ) != LOBYTE(wVersionRequested) ||
+     HIBYTE( wsaData.wVersion ) != HIBYTE(wVersionRequested) ) {
     /* Tell the user that we couldn't find a useable */
 
     /* winsock.dll. */
@@ -153,12 +129,14 @@ static CURLcode win32_init(void)
     return CURLE_FAILED_INIT;
   }
   /* The Windows Sockets DLL is acceptable. Proceed. */
+#elif defined(USE_LWIPSOCK)
+  lwip_init();
 #endif
 
 #ifdef USE_WINDOWS_SSPI
   {
     CURLcode err = Curl_sspi_global_init();
-    if (err != CURLE_OK)
+    if(err != CURLE_OK)
       return err;
   }
 #endif
@@ -219,6 +197,9 @@ curl_free_callback Curl_cfree = (curl_free_callback)free;
 curl_realloc_callback Curl_crealloc = (curl_realloc_callback)realloc;
 curl_strdup_callback Curl_cstrdup = (curl_strdup_callback)system_strdup;
 curl_calloc_callback Curl_ccalloc = (curl_calloc_callback)calloc;
+#ifdef WIN32
+curl_wcsdup_callback Curl_cwcsdup = (curl_wcsdup_callback)wcsdup;
+#endif
 #else
 /*
  * Symbian OS doesn't support initialization to code in writeable static data.
@@ -250,6 +231,9 @@ CURLcode curl_global_init(long flags)
   Curl_crealloc = (curl_realloc_callback)realloc;
   Curl_cstrdup = (curl_strdup_callback)system_strdup;
   Curl_ccalloc = (curl_calloc_callback)calloc;
+#ifdef WIN32
+  Curl_cwcsdup = (curl_wcsdup_callback)wcsdup;
+#endif
 
   if(flags & CURL_GLOBAL_SSL)
     if(!Curl_ssl_init()) {
@@ -264,8 +248,8 @@ CURLcode curl_global_init(long flags)
     }
 
 #ifdef __AMIGA__
-  if(!amiga_init()) {
-    DEBUGF(fprintf(stderr, "Error: amiga_init failed\n"));
+  if(!Curl_amiga_init()) {
+    DEBUGF(fprintf(stderr, "Error: Curl_amiga_init failed\n"));
     return CURLE_FAILED_INIT;
   }
 #endif
@@ -280,12 +264,10 @@ CURLcode curl_global_init(long flags)
   idna_init();
 #endif
 
-#ifdef CARES_HAVE_ARES_LIBRARY_INIT
-  if(ares_library_init(ARES_LIB_INIT_ALL)) {
-    DEBUGF(fprintf(stderr, "Error: ares_library_init failed\n"));
+  if(Curl_resolver_global_init() != CURLE_OK) {
+    DEBUGF(fprintf(stderr, "Error: resolver_global_init failed\n"));
     return CURLE_FAILED_INIT;
   }
-#endif
 
 #if defined(USE_LIBSSH2) && defined(HAVE_LIBSSH2_INIT)
   if(libssh2_init(0)) {
@@ -293,6 +275,9 @@ CURLcode curl_global_init(long flags)
     return CURLE_FAILED_INIT;
   }
 #endif
+
+  if(flags & CURL_GLOBAL_ACK_EINTR)
+    Curl_ack_eintr = 1;
 
   init_flags  = flags;
 
@@ -318,7 +303,7 @@ CURLcode curl_global_init_mem(long flags, curl_malloc_callback m,
     return CURLE_FAILED_INIT;
 
   /* Already initialized, don't do it again */
-  if( initialized )
+  if(initialized)
     return CURLE_OK;
 
   /* Call the actual init function first */
@@ -351,16 +336,12 @@ void curl_global_cleanup(void)
   if(init_flags & CURL_GLOBAL_SSL)
     Curl_ssl_cleanup();
 
-#ifdef CARES_HAVE_ARES_LIBRARY_CLEANUP
-  ares_library_cleanup();
-#endif
+  Curl_resolver_global_cleanup();
 
   if(init_flags & CURL_GLOBAL_WIN32)
     win32_cleanup();
 
-#ifdef __AMIGA__
-  amiga_cleanup();
-#endif
+  Curl_amiga_cleanup();
 
 #if defined(USE_LIBSSH2) && defined(HAVE_LIBSSH2_EXIT)
   (void)libssh2_exit();
@@ -421,40 +402,49 @@ CURLcode curl_easy_setopt(CURL *curl, CURLoption tag, ...)
   return ret;
 }
 
-#ifdef CURL_MULTIEASY
-/***************************************************************************
- * This function is still only for testing purposes. It makes a great way
- * to run the full test suite on the multi interface instead of the easy one.
- ***************************************************************************
+/*
+ * curl_easy_perform() is the external interface that performs a blocking
+ * transfer as previously setup.
  *
- * The *new* curl_easy_perform() is the external interface that performs a
- * transfer previously setup.
- *
- * Wrapper-function that: creates a multi handle, adds the easy handle to it,
+ * CONCEPT: This function creates a multi handle, adds the easy handle to it,
  * runs curl_multi_perform() until the transfer is done, then detaches the
  * easy handle, destroys the multi handle and returns the easy handle's return
- * code. This will make everything internally use and assume multi interface.
+ * code.
+ *
+ * REALITY: it can't just create and destroy the multi handle that easily. It
+ * needs to keep it around since if this easy handle is used again by this
+ * function, the same multi handle must be re-used so that the same pools and
+ * caches can be used.
  */
 CURLcode curl_easy_perform(CURL *easy)
 {
   CURLM *multi;
   CURLMcode mcode;
   CURLcode code = CURLE_OK;
-  int still_running;
-  struct timeval timeout;
-  int rc;
   CURLMsg *msg;
-  fd_set fdread;
-  fd_set fdwrite;
-  fd_set fdexcep;
-  int maxfd;
+  bool done = FALSE;
+  int rc;
+  struct SessionHandle *data = easy;
 
   if(!easy)
     return CURLE_BAD_FUNCTION_ARGUMENT;
 
-  multi = curl_multi_init();
-  if(!multi)
-    return CURLE_OUT_OF_MEMORY;
+  if(data->multi) {
+    failf(data, "easy handled already used in multi handle");
+    return CURLE_FAILED_INIT;
+  }
+
+  if(data->multi_easy)
+    multi = data->multi_easy;
+  else {
+    multi = curl_multi_init();
+    if(!multi)
+      return CURLE_OUT_OF_MEMORY;
+    data->multi_easy = multi;
+  }
+
+  /* Copy the MAXCONNECTS option to the multi handle */
+  curl_multi_setopt(multi, CURLMOPT_MAXCONNECTS, data->set.maxconnects);
 
   mcode = curl_multi_add_handle(multi, easy);
   if(mcode) {
@@ -465,108 +455,43 @@ CURLcode curl_easy_perform(CURL *easy)
       return CURLE_FAILED_INIT;
   }
 
-  /* we start some action by calling perform right away */
+  /* assign this after curl_multi_add_handle() since that function checks for
+     it and rejects this handle otherwise */
+  data->multi = multi;
 
-  do {
-    while(CURLM_CALL_MULTI_PERFORM ==
-          curl_multi_perform(multi, &still_running));
+  while(!done && !mcode) {
+    int still_running;
+    int ret;
 
-    if(!still_running)
-      break;
+    mcode = curl_multi_wait(multi, NULL, 0, 1000, &ret);
 
-    FD_ZERO(&fdread);
-    FD_ZERO(&fdwrite);
-    FD_ZERO(&fdexcep);
+    if(mcode == CURLM_OK) {
+      if(ret == -1) {
+        /* poll() failed not on EINTR, indicate a network problem */
+        code = CURLE_RECV_ERROR;
+        break;
+      }
 
-    /* timeout once per second */
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
+      mcode = curl_multi_perform(multi, &still_running);
+    }
 
-    /* Old deprecated style: get file descriptors from the transfers */
-    curl_multi_fdset(multi, &fdread, &fdwrite, &fdexcep, &maxfd);
-    rc = Curl_select(maxfd+1, &fdread, &fdwrite, &fdexcep, &timeout);
+    /* only read 'still_running' if curl_multi_perform() return OK */
+    if((mcode == CURLM_OK) && !still_running) {
+      msg = curl_multi_info_read(multi, &rc);
+      if(msg) {
+        code = msg->data.result;
+        done = TRUE;
+      }
+    }
+  }
 
-    /* The way is to extract the sockets and wait for them without using
-       select. This whole alternative version should probably rather use the
-       curl_multi_socket() approach. */
+  /* ignoring the return code isn't nice, but atm we can't really handle
+     a failure here, room for future improvement! */
+  (void)curl_multi_remove_handle(multi, easy);
 
-    if(rc == -1)
-      /* select error */
-      break;
-
-    /* timeout or data to send/receive => loop! */
-  } while(still_running);
-
-  msg = curl_multi_info_read(multi, &rc);
-  if(msg)
-    code = msg->data.result;
-
-  mcode = curl_multi_remove_handle(multi, easy);
-  /* what to do if it fails? */
-
-  mcode = curl_multi_cleanup(multi);
-  /* what to do if it fails? */
-
+  /* The multi handle is kept alive, owned by the easy handle */
   return code;
 }
-#else
-/*
- * curl_easy_perform() is the external interface that performs a transfer
- * previously setup.
- */
-CURLcode curl_easy_perform(CURL *curl)
-{
-  struct SessionHandle *data = (struct SessionHandle *)curl;
-
-  if(!data)
-    return CURLE_BAD_FUNCTION_ARGUMENT;
-
-  if( ! (data->share && data->share->hostcache) ) {
-    /* this handle is not using a shared dns cache */
-
-    if(data->set.global_dns_cache &&
-       (data->dns.hostcachetype != HCACHE_GLOBAL)) {
-      /* global dns cache was requested but still isn't */
-      struct curl_hash *ptr;
-
-      if(data->dns.hostcachetype == HCACHE_PRIVATE) {
-        /* if the current cache is private, kill it first */
-        Curl_hash_destroy(data->dns.hostcache);
-        data->dns.hostcachetype = HCACHE_NONE;
-        data->dns.hostcache = NULL;
-      }
-
-      ptr = Curl_global_host_cache_init();
-      if(ptr) {
-        /* only do this if the global cache init works */
-        data->dns.hostcache = ptr;
-        data->dns.hostcachetype = HCACHE_GLOBAL;
-      }
-    }
-
-    if(!data->dns.hostcache) {
-      data->dns.hostcachetype = HCACHE_PRIVATE;
-      data->dns.hostcache = Curl_mk_dnscache();
-
-      if(!data->dns.hostcache)
-        /* While we possibly could survive and do good without a host cache,
-           the fact that creating it failed indicates that things are truly
-           screwed up and we should bail out! */
-        return CURLE_OUT_OF_MEMORY;
-    }
-
-  }
-
-  if(!data->state.connc) {
-    /* oops, no connection cache, make one up */
-    data->state.connc = Curl_mk_connc(CONNCACHE_PRIVATE, -1L);
-    if(!data->state.connc)
-      return CURLE_OUT_OF_MEMORY;
-  }
-
-  return Curl_perform(data);
-}
-#endif
 
 /*
  * curl_easy_cleanup() is the external interface to cleaning/freeing the given
@@ -589,10 +514,6 @@ void Curl_easy_addmulti(struct SessionHandle *data,
                         void *multi)
 {
   data->multi = multi;
-  if(multi == NULL)
-    /* the association is cleared, mark the easy handle as not used by an
-       interface */
-    data->state.used_interface = Curl_if_none;
 }
 
 void Curl_easy_initHandleData(struct SessionHandle *data)
@@ -647,14 +568,13 @@ CURL *curl_easy_duphandle(CURL *incurl)
     goto fail;
 
   /* the connection cache is setup on demand */
-  outcurl->state.connc = NULL;
+  outcurl->state.conn_cache = NULL;
 
-  outcurl->state.lastconnect = -1;
+  outcurl->state.lastconnect = NULL;
 
   outcurl->progress.flags    = data->progress.flags;
   outcurl->progress.callback = data->progress.callback;
 
-#if !defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_COOKIES)
   if(data->cookies) {
     /* If cookies are enabled in the parent handle, we enable them
        in the clone as well! */
@@ -665,18 +585,14 @@ CURL *curl_easy_duphandle(CURL *incurl)
     if(!outcurl->cookies)
       goto fail;
   }
-#endif   /* CURL_DISABLE_HTTP */
 
   /* duplicate all values in 'change' */
-
-#if !defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_COOKIES)
   if(data->change.cookielist) {
     outcurl->change.cookielist =
       Curl_slist_duplicate(data->change.cookielist);
     if(!outcurl->change.cookielist)
       goto fail;
   }
-#endif   /* CURL_DISABLE_HTTP */
 
   if(data->change.url) {
     outcurl->change.url = strdup(data->change.url);
@@ -692,21 +608,12 @@ CURL *curl_easy_duphandle(CURL *incurl)
     outcurl->change.referer_alloc = TRUE;
   }
 
-#ifdef USE_ARES
-  /* If we use ares, we clone the ares channel for the new handle */
-  if(ARES_SUCCESS != ares_dup(&outcurl->state.areschannel,
-                              data->state.areschannel))
+  /* Clone the resolver handle, if present, for the new handle */
+  if(Curl_resolver_duphandle(&outcurl->state.resolver,
+                             data->state.resolver) != CURLE_OK)
     goto fail;
-#endif
 
-#if defined(CURL_DOES_CONVERSIONS) && defined(HAVE_ICONV)
-  outcurl->inbound_cd = iconv_open(CURL_ICONV_CODESET_OF_HOST,
-                                   CURL_ICONV_CODESET_OF_NETWORK);
-  outcurl->outbound_cd = iconv_open(CURL_ICONV_CODESET_OF_NETWORK,
-                                    CURL_ICONV_CODESET_OF_HOST);
-  outcurl->utf8_cd = iconv_open(CURL_ICONV_CODESET_OF_HOST,
-                                CURL_ICONV_CODESET_FOR_UTF8);
-#endif
+  Curl_convert_setup(outcurl);
 
   Curl_easy_initHandleData(outcurl);
 
@@ -719,19 +626,11 @@ CURL *curl_easy_duphandle(CURL *incurl)
   fail:
 
   if(outcurl) {
-    if(outcurl->state.connc &&
-       (outcurl->state.connc->type == CONNCACHE_PRIVATE))
-      Curl_rm_connc(outcurl->state.connc);
-    if(outcurl->state.headerbuff)
-      free(outcurl->state.headerbuff);
-#if !defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_COOKIES)
-    if(outcurl->change.cookielist)
-      curl_slist_free_all(outcurl->change.cookielist);
-#endif
-    if(outcurl->change.url)
-      free(outcurl->change.url);
-    if(outcurl->change.referer)
-      free(outcurl->change.referer);
+    curl_slist_free_all(outcurl->change.cookielist);
+    outcurl->change.cookielist = NULL;
+    Curl_safefree(outcurl->state.headerbuff);
+    Curl_safefree(outcurl->change.url);
+    Curl_safefree(outcurl->change.referer);
     Curl_freeset(outcurl);
     free(outcurl);
   }
@@ -748,10 +647,10 @@ void curl_easy_reset(CURL *curl)
   struct SessionHandle *data = (struct SessionHandle *)curl;
 
   Curl_safefree(data->state.pathbuffer);
-  data->state.pathbuffer=NULL;
+
+  data->state.path = NULL;
 
   Curl_safefree(data->state.proto.generic);
-  data->state.proto.generic=NULL;
 
   /* zero out UserDefined data: */
   Curl_freeset(data);
@@ -795,8 +694,8 @@ CURLcode curl_easy_pause(CURL *curl, int action)
   k->keepon = newstate;
 
   if(!(newstate & KEEP_RECV_PAUSE) && data->state.tempwrite) {
-    /* we have a buffer for sending that we now seem to be able to deliver since
-       the receive pausing is lifted! */
+    /* we have a buffer for sending that we now seem to be able to deliver
+       since the receive pausing is lifted! */
 
     /* get the pointer, type and length in local copies since the function may
        return PAUSE again and then we'll get a new copy allocted and stored in
@@ -870,196 +769,6 @@ CURLcode curl_easy_pause(CURL *curl, int action)
   return result;
 }
 
-#ifdef CURL_DOES_CONVERSIONS
-/*
- * Curl_convert_to_network() is an internal function
- * for performing ASCII conversions on non-ASCII platforms.
- */
-CURLcode Curl_convert_to_network(struct SessionHandle *data,
-                                 char *buffer, size_t length)
-{
-  CURLcode rc;
-
-  if(data->set.convtonetwork) {
-    /* use translation callback */
-    rc = data->set.convtonetwork(buffer, length);
-    if(rc != CURLE_OK) {
-      failf(data,
-            "CURLOPT_CONV_TO_NETWORK_FUNCTION callback returned %d: %s",
-            (int)rc, curl_easy_strerror(rc));
-    }
-    return(rc);
-  }
-  else {
-#ifdef HAVE_ICONV
-    /* do the translation ourselves */
-    char *input_ptr, *output_ptr;
-    size_t in_bytes, out_bytes, rc;
-    int error;
-
-    /* open an iconv conversion descriptor if necessary */
-    if(data->outbound_cd == (iconv_t)-1) {
-      data->outbound_cd = iconv_open(CURL_ICONV_CODESET_OF_NETWORK,
-                                     CURL_ICONV_CODESET_OF_HOST);
-      if(data->outbound_cd == (iconv_t)-1) {
-        error = ERRNO;
-        failf(data,
-              "The iconv_open(\"%s\", \"%s\") call failed with errno %i: %s",
-               CURL_ICONV_CODESET_OF_NETWORK,
-               CURL_ICONV_CODESET_OF_HOST,
-               error, strerror(error));
-        return CURLE_CONV_FAILED;
-      }
-    }
-    /* call iconv */
-    input_ptr = output_ptr = buffer;
-    in_bytes = out_bytes = length;
-    rc = iconv(data->outbound_cd, (const char**)&input_ptr, &in_bytes,
-               &output_ptr, &out_bytes);
-    if((rc == ICONV_ERROR) || (in_bytes != 0)) {
-      error = ERRNO;
-      failf(data,
-        "The Curl_convert_to_network iconv call failed with errno %i: %s",
-             error, strerror(error));
-      return CURLE_CONV_FAILED;
-    }
-#else
-    failf(data, "CURLOPT_CONV_TO_NETWORK_FUNCTION callback required");
-    return CURLE_CONV_REQD;
-#endif /* HAVE_ICONV */
-  }
-
-  return CURLE_OK;
-}
-
-/*
- * Curl_convert_from_network() is an internal function
- * for performing ASCII conversions on non-ASCII platforms.
- */
-CURLcode Curl_convert_from_network(struct SessionHandle *data,
-                                      char *buffer, size_t length)
-{
-  CURLcode rc;
-
-  if(data->set.convfromnetwork) {
-    /* use translation callback */
-    rc = data->set.convfromnetwork(buffer, length);
-    if(rc != CURLE_OK) {
-      failf(data,
-            "CURLOPT_CONV_FROM_NETWORK_FUNCTION callback returned %d: %s",
-            (int)rc, curl_easy_strerror(rc));
-    }
-    return(rc);
-  }
-  else {
-#ifdef HAVE_ICONV
-    /* do the translation ourselves */
-    char *input_ptr, *output_ptr;
-    size_t in_bytes, out_bytes, rc;
-    int error;
-
-    /* open an iconv conversion descriptor if necessary */
-    if(data->inbound_cd == (iconv_t)-1) {
-      data->inbound_cd = iconv_open(CURL_ICONV_CODESET_OF_HOST,
-                                    CURL_ICONV_CODESET_OF_NETWORK);
-      if(data->inbound_cd == (iconv_t)-1) {
-        error = ERRNO;
-        failf(data,
-              "The iconv_open(\"%s\", \"%s\") call failed with errno %i: %s",
-              CURL_ICONV_CODESET_OF_HOST,
-              CURL_ICONV_CODESET_OF_NETWORK,
-              error, strerror(error));
-        return CURLE_CONV_FAILED;
-      }
-    }
-    /* call iconv */
-    input_ptr = output_ptr = buffer;
-    in_bytes = out_bytes = length;
-    rc = iconv(data->inbound_cd, (const char **)&input_ptr, &in_bytes,
-               &output_ptr, &out_bytes);
-    if((rc == ICONV_ERROR) || (in_bytes != 0)) {
-      error = ERRNO;
-      failf(data,
-            "The Curl_convert_from_network iconv call failed with errno %i: %s",
-            error, strerror(error));
-      return CURLE_CONV_FAILED;
-    }
-#else
-    failf(data, "CURLOPT_CONV_FROM_NETWORK_FUNCTION callback required");
-    return CURLE_CONV_REQD;
-#endif /* HAVE_ICONV */
-  }
-
-  return CURLE_OK;
-}
-
-/*
- * Curl_convert_from_utf8() is an internal function
- * for performing UTF-8 conversions on non-ASCII platforms.
- */
-CURLcode Curl_convert_from_utf8(struct SessionHandle *data,
-                                     char *buffer, size_t length)
-{
-  CURLcode rc;
-
-  if(data->set.convfromutf8) {
-    /* use translation callback */
-    rc = data->set.convfromutf8(buffer, length);
-    if(rc != CURLE_OK) {
-      failf(data,
-            "CURLOPT_CONV_FROM_UTF8_FUNCTION callback returned %d: %s",
-            (int)rc, curl_easy_strerror(rc));
-    }
-    return(rc);
-  }
-  else {
-#ifdef HAVE_ICONV
-    /* do the translation ourselves */
-    const char *input_ptr;
-    char *output_ptr;
-    size_t in_bytes, out_bytes, rc;
-    int error;
-
-    /* open an iconv conversion descriptor if necessary */
-    if(data->utf8_cd == (iconv_t)-1) {
-      data->utf8_cd = iconv_open(CURL_ICONV_CODESET_OF_HOST,
-                                 CURL_ICONV_CODESET_FOR_UTF8);
-      if(data->utf8_cd == (iconv_t)-1) {
-        error = ERRNO;
-        failf(data,
-              "The iconv_open(\"%s\", \"%s\") call failed with errno %i: %s",
-              CURL_ICONV_CODESET_OF_HOST,
-              CURL_ICONV_CODESET_FOR_UTF8,
-              error, strerror(error));
-        return CURLE_CONV_FAILED;
-      }
-    }
-    /* call iconv */
-    input_ptr = output_ptr = buffer;
-    in_bytes = out_bytes = length;
-    rc = iconv(data->utf8_cd, &input_ptr, &in_bytes,
-               &output_ptr, &out_bytes);
-    if((rc == ICONV_ERROR) || (in_bytes != 0)) {
-      error = ERRNO;
-      failf(data,
-            "The Curl_convert_from_utf8 iconv call failed with errno %i: %s",
-            error, strerror(error));
-      return CURLE_CONV_FAILED;
-    }
-    if(output_ptr < input_ptr) {
-      /* null terminate the now shorter output string */
-      *output_ptr = 0x00;
-    }
-#else
-    failf(data, "CURLOPT_CONV_FROM_UTF8_FUNCTION callback required");
-    return CURLE_CONV_REQD;
-#endif /* HAVE_ICONV */
-  }
-
-  return CURLE_OK;
-}
-
-#endif /* CURL_DOES_CONVERSIONS */
 
 static CURLcode easy_connection(struct SessionHandle *data,
                                 curl_socket_t *sfd,

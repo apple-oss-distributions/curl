@@ -1,12 +1,24 @@
-/*****************************************************************************
+/***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
  *                             / __| | | | |_) | |
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- */
-
+ * Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
+ *
+ * This software is licensed as described in the file COPYING, which
+ * you should have received as part of this distribution. The terms
+ * are also available at http://curl.haxx.se/docs/copyright.html.
+ *
+ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
+ * copies of the Software, and permit persons to whom the Software is
+ * furnished to do so, under the terms of the COPYING file.
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+ * KIND, either express or implied.
+ *
+ ***************************************************************************/
 #include <stdio.h>
 #include <string.h>
 
@@ -39,12 +51,16 @@
    variable's memory when passed in to it from an app like this. */
 static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 {
+  curl_off_t nread;
   /* in real-world cases, this would probably get this data differently
      as this fread() stuff is exactly what the library already would do
      by default internally */
   size_t retcode = fread(ptr, size, nmemb, stream);
 
-  fprintf(stderr, "*** We read %d bytes from file\n", retcode);
+  nread = (curl_off_t)retcode;
+
+  fprintf(stderr, "*** We read %" CURL_FORMAT_CURL_OFF_T
+          " bytes from file\n", nread);
   return retcode;
 }
 
@@ -106,6 +122,10 @@ int main(void)
 
     /* Now run off and do what you've been told! */
     res = curl_easy_perform(curl);
+    /* Check for errors */
+    if(res != CURLE_OK)
+      fprintf(stderr, "curl_easy_perform() failed: %s\n",
+              curl_easy_strerror(res));
 
     /* clean up the FTP commands list */
     curl_slist_free_all (headerlist);

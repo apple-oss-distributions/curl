@@ -1,12 +1,24 @@
-/*****************************************************************************
+/***************************************************************************
  *                                  _   _ ____  _
  *  Project                     ___| | | |  _ \| |
  *                             / __| | | | |_) | |
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- */
-
+ * Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
+ *
+ * This software is licensed as described in the file COPYING, which
+ * you should have received as part of this distribution. The terms
+ * are also available at http://curl.haxx.se/docs/copyright.html.
+ *
+ * You may opt to use, copy, modify, merge, publish, distribute and/or sell
+ * copies of the Software, and permit persons to whom the Software is
+ * furnished to do so, under the terms of the COPYING file.
+ *
+ * This software is distributed on an "AS IS" basis, WITHOUT WARRANTY OF ANY
+ * KIND, either express or implied.
+ *
+ ***************************************************************************/
 #include <curl/curl.h>
 #include <stdio.h>
 
@@ -21,7 +33,7 @@ static long file_is_comming(struct curl_fileinfo *finfo,
 static long file_is_downloaded(struct callback_data *data);
 
 static size_t write_it(char *buff, size_t size, size_t nmemb,
-                       struct callback_data *data);
+                       void *cb_data);
 
 int main(int argc, char **argv)
 {
@@ -123,8 +135,9 @@ static long file_is_downloaded(struct callback_data *data)
 }
 
 static size_t write_it(char *buff, size_t size, size_t nmemb,
-                       struct callback_data *data)
+                       void *cb_data)
 {
+  struct callback_data *data = cb_data;
   size_t written = 0;
   if(data->output)
     written = fwrite(buff, size, nmemb, data->output);
