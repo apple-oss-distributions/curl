@@ -19,7 +19,8 @@
 .\" * KIND, either express or implied.
 .\" *
 .\" **************************************************************************
-.TH curl_multi_socket_action 3 "9 Jul 2006" "libcurl 7.16.0" "libcurl Manual"
+.TH curl_multi_socket_action 3 "June 07, 2016" "libcurl 7.54.0" "libcurl Manual"
+
 .SH NAME
 curl_multi_socket_action \- reads/writes available data given an action
 .SH SYNOPSIS
@@ -43,7 +44,7 @@ libcurl will test the descriptor internally. It is also permissible to pass
 CURL_SOCKET_TIMEOUT to the \fBsockfd\fP parameter in order to initiate the
 whole process or when a timeout occurs.
 
-At return, the integer \fBrunning_handles\fP points to will contain the number
+At return, \fBrunning_handles\fP points to the number
 of running easy handles within the multi handle. When this number reaches
 zero, all transfers are complete/done. When you call
 \fIcurl_multi_socket_action(3)\fP on a specific socket and the counter

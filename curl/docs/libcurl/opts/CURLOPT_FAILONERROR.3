@@ -20,7 +20,8 @@
 .\" *
 .\" **************************************************************************
 .\"
-.TH CURLOPT_FAILONERROR 3 "17 Jun 2014" "libcurl 7.37.0" "curl_easy_setopt options"
+.TH CURLOPT_FAILONERROR 3 "September 22, 2016" "libcurl 7.54.0" "curl_easy_setopt options"
+
 .SH NAME
 CURLOPT_FAILONERROR \- request failure on HTTP response >= 400
 .SH SYNOPSIS
@@ -53,4 +54,4 @@ Along with HTTP
 .SH RETURN VALUE
 Returns CURLE_OK if HTTP is enabled, and CURLE_UNKNOWN_OPTION if not.
 .SH "SEE ALSO"
-.BR CURLOPT_HTTP200ALIASES "(3), "
+.BR CURLOPT_HTTP200ALIASES "(3), " CURLOPT_KEEP_SENDING_ON_ERROR "(3), "

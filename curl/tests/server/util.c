@@ -34,10 +34,13 @@
 #ifdef HAVE_NETDB_H
 #include <netdb.h>
 #endif
-#ifdef HAVE_SYS_POLL_H
-#include <sys/poll.h>
-#elif defined(HAVE_POLL_H)
+#ifdef HAVE_POLL_H
 #include <poll.h>
+#elif defined(HAVE_SYS_POLL_H)
+#include <sys/poll.h>
+#endif
+#ifdef __MINGW32__
+#include <w32api.h>
 #endif
 
 #define ENABLE_CURLX_PRINTF
@@ -55,9 +58,14 @@
 #define EINVAL  22 /* errno.h value */
 #endif
 
+/* MinGW with w32api version < 3.6 declared in6addr_any as extern,
+   but lacked the definition */
 #if defined(ENABLE_IPV6) && defined(__MINGW32__)
+#if (__W32API_MAJOR_VERSION < 3) || \
+    ((__W32API_MAJOR_VERSION == 3) && (__W32API_MINOR_VERSION < 6))
 const struct in6_addr in6addr_any = {{ IN6ADDR_ANY_INIT }};
-#endif
+#endif /* w32api < 3.6 */
+#endif /* ENABLE_IPV6 && __MINGW32__*/
 
 /* This function returns a pointer to STATIC memory. It converts the given
  * binary lump to a hex formatted string usable for output in logs or
@@ -135,7 +143,7 @@ void logmsg(const char *msg, ...)
 
 #ifdef WIN32
 /* use instead of perror() on generic windows */
-void win32_perror (const char *msg)
+void win32_perror(const char *msg)
 {
   char buf[512];
   DWORD err = SOCKERRNO;
@@ -304,4 +312,88 @@ void clear_advisor_read_lock(const char *filename)
   if(res)
     logmsg("Error removing lock file %s error: %d %s",
            filename, error, strerror(error));
+}
+
+
+/* Portable, consistent toupper (remember EBCDIC). Do not use toupper() because
+   its behavior is altered by the current locale. */
+static char raw_toupper(char in)
+{
+#if !defined(CURL_DOES_CONVERSIONS)
+  if(in >= 'a' && in <= 'z')
+    return (char)('A' + in - 'a');
+#else
+  switch(in) {
+  case 'a':
+    return 'A';
+  case 'b':
+    return 'B';
+  case 'c':
+    return 'C';
+  case 'd':
+    return 'D';
+  case 'e':
+    return 'E';
+  case 'f':
+    return 'F';
+  case 'g':
+    return 'G';
+  case 'h':
+    return 'H';
+  case 'i':
+    return 'I';
+  case 'j':
+    return 'J';
+  case 'k':
+    return 'K';
+  case 'l':
+    return 'L';
+  case 'm':
+    return 'M';
+  case 'n':
+    return 'N';
+  case 'o':
+    return 'O';
+  case 'p':
+    return 'P';
+  case 'q':
+    return 'Q';
+  case 'r':
+    return 'R';
+  case 's':
+    return 'S';
+  case 't':
+    return 'T';
+  case 'u':
+    return 'U';
+  case 'v':
+    return 'V';
+  case 'w':
+    return 'W';
+  case 'x':
+    return 'X';
+  case 'y':
+    return 'Y';
+  case 'z':
+    return 'Z';
+  }
+#endif
+
+  return in;
+}
+
+int strncasecompare(const char *first, const char *second, size_t max)
+{
+  while(*first && *second && max) {
+    if(raw_toupper(*first) != raw_toupper(*second)) {
+      break;
+    }
+    max--;
+    first++;
+    second++;
+  }
+  if(0 == max)
+    return 1; /* they are equal this far */
+
+  return raw_toupper(*first) == raw_toupper(*second);
 }
